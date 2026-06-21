@@ -79,6 +79,8 @@ Godot MCP enables AI agents to launch the Godot editor, run projects, capture de
 
 The server exposes a full **inspect → mutate → validate** loop so an agent can edit scenes deliberately instead of creating them blind. All operations run headless and report structured JSON results with authoritative exit-code error handling.
 
+> 📖 **[`docs/TOOLS.md`](docs/TOOLS.md)** is the complete per-tool reference — every tool, with its parameters (type, required/optional) and description, grouped by domain. The lists below are a curated overview.
+
 - **Scene inspection (READ)**:
   - `get_scene_tree` — full node tree of a scene as JSON (names, types, paths, scripts, groups)
   - `get_node_properties` — read a node's properties (`overrides` or `effective` mode)
