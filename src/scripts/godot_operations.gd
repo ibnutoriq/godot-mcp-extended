@@ -57,7 +57,14 @@ func _init():
         quit(1)
     
     log_info("Executing operation: " + operation)
-    
+
+    # Async operations need the main loop to keep ticking, so we await them and
+    # only quit once the coroutine has fully completed.
+    if operation == "run_scene_test":
+        await run_scene_test(params)
+        quit(exit_code)
+        return
+
     match operation:
         "create_scene":
             create_scene(params)
@@ -2046,3 +2053,222 @@ func get_resource_properties(params):
             continue
         props[rname] = json_safe(res.get(rname))
     emit_result({"resource": res_path, "class": res.get_class(), "properties": props})
+
+# ===========================================================================
+# Automated e2e / UAT: headless scenario runner
+#
+# Boots the game's scene inside this SceneTree (no rendering), advances real
+# frames, injects synthetic input, drives methods/signals, and evaluates
+# assertions against live game state. Each scenario is a list of step dicts;
+# results are reported as __RESULT__ with per-assertion pass/fail.
+# ===========================================================================
+
+func _e2e_wait_seconds(seconds):
+    if seconds <= 0:
+        return
+    await create_timer(seconds).timeout
+
+func _e2e_compare(actual, expected, op):
+    # Vector/struct comparison: only the components present in `expected` are checked.
+    if typeof(expected) == TYPE_DICTIONARY:
+        var all_ok = true
+        for k in expected:
+            var sub = actual.get(k) if typeof(actual) == TYPE_DICTIONARY else actual.get(k)
+            # For Vector*/Color, component access works via .x/.y/etc through get().
+            var av = null
+            if typeof(actual) == TYPE_DICTIONARY:
+                av = actual.get(k)
+            else:
+                av = actual.get(k)
+            if not _e2e_scalar_compare(av, expected[k], op):
+                all_ok = false
+        return all_ok
+    return _e2e_scalar_compare(actual, expected, op)
+
+func _e2e_scalar_compare(actual, expected, op):
+    match op:
+        "==":
+            return actual == expected or (_is_num(actual) and _is_num(expected) and abs(float(actual) - float(expected)) < 0.0001)
+        "!=":
+            return not (actual == expected)
+        ">":
+            return _is_num(actual) and _is_num(expected) and float(actual) > float(expected)
+        "<":
+            return _is_num(actual) and _is_num(expected) and float(actual) < float(expected)
+        ">=":
+            return _is_num(actual) and _is_num(expected) and float(actual) >= float(expected)
+        "<=":
+            return _is_num(actual) and _is_num(expected) and float(actual) <= float(expected)
+    return actual == expected
+
+func _is_num(v):
+    return typeof(v) == TYPE_INT or typeof(v) == TYPE_FLOAT
+
+func run_scene_test(params):
+    var scene_path = _res_path(params.scene_path)
+    if not ResourceLoader.exists(scene_path):
+        fail("e2e: scene does not exist: " + scene_path)
+        return
+    var packed = load(scene_path)
+    if packed == null or not (packed is PackedScene):
+        fail("e2e: not a valid PackedScene: " + scene_path)
+        return
+    var inst = packed.instantiate()
+    if inst == null:
+        fail("e2e: could not instantiate scene: " + scene_path)
+        return
+    get_root().add_child(inst)
+
+    var results = []
+    var sig_counts = {}
+    var logs = []
+    var max_seconds = float(params.get("timeout_seconds", 10))
+    var start_ms = Time.get_ticks_msec()
+
+    # Let _ready() run on the whole subtree before the first step.
+    await process_frame
+
+    for step in params.get("steps", []):
+        if (Time.get_ticks_msec() - start_ms) > max_seconds * 1000:
+            logs.append("scenario timeout (" + str(max_seconds) + "s) reached; remaining steps skipped")
+            break
+        var action = str(step.get("action", ""))
+        match action:
+            "wait_frames":
+                for i in int(step.get("frames", 1)):
+                    await process_frame
+            "wait_seconds":
+                await _e2e_wait_seconds(float(step.get("seconds", 0)))
+            "press_action":
+                if InputMap.has_action(str(step.get("name", ""))):
+                    Input.action_press(str(step.name), float(step.get("strength", 1.0)))
+                else:
+                    logs.append("press_action: no such action '" + str(step.get("name", "")) + "'")
+            "release_action":
+                if InputMap.has_action(str(step.get("name", ""))):
+                    Input.action_release(str(step.name))
+            "tap_action":
+                if InputMap.has_action(str(step.get("name", ""))):
+                    Input.action_press(str(step.name))
+                    for i in int(step.get("frames", 2)):
+                        await process_frame
+                    Input.action_release(str(step.name))
+            "key":
+                var kev = InputEventKey.new()
+                if step.has("key"):
+                    kev.keycode = OS.find_keycode_from_string(str(step.key))
+                else:
+                    kev.keycode = int(step.get("keycode", 0))
+                kev.pressed = step.get("pressed", true)
+                Input.parse_input_event(kev)
+            "mouse_button":
+                var mev = InputEventMouseButton.new()
+                mev.button_index = int(step.get("button", 1))
+                mev.pressed = step.get("pressed", true)
+                if step.has("position"):
+                    mev.position = _to_vec(step.position, 2, false)
+                Input.parse_input_event(mev)
+            "mouse_move":
+                var mmev = InputEventMouseMotion.new()
+                if step.has("position"):
+                    mmev.position = _to_vec(step.position, 2, false)
+                Input.parse_input_event(mmev)
+            "set_property":
+                var n1 = resolve_node(inst, step.get("node", ""))
+                if n1 != null:
+                    n1.set(str(step.property), coerce_value(n1, str(step.property), step.value))
+                else:
+                    logs.append("set_property: node not found '" + str(step.get("node", "")) + "'")
+            "call_method":
+                var n2 = resolve_node(inst, step.get("node", ""))
+                if n2 != null and n2.has_method(str(step.method)):
+                    n2.callv(str(step.method), step.get("args", []))
+                else:
+                    logs.append("call_method: node/method not found '" + str(step.get("method", "")) + "'")
+            "emit_signal":
+                var n3 = resolve_node(inst, step.get("node", ""))
+                if n3 != null:
+                    n3.callv("emit_signal", [str(step.signal_name)] + step.get("args", []))
+            "watch_signal":
+                var n4 = resolve_node(inst, step.get("node", ""))
+                if n4 != null and n4.has_signal(str(step.signal_name)):
+                    var wkey = str(step.get("node", "")) + "|" + str(step.signal_name)
+                    if not sig_counts.has(wkey):
+                        sig_counts[wkey] = 0
+                    var cb = func(_a = 0, _b = 0, _c = 0, _d = 0): sig_counts[wkey] = sig_counts[wkey] + 1
+                    n4.connect(str(step.signal_name), cb)
+            "wait_for_signal":
+                var n5 = resolve_node(inst, step.get("node", ""))
+                var got = [false]
+                if n5 != null and n5.has_signal(str(step.signal_name)):
+                    n5.connect(str(step.signal_name), func(_a = 0, _b = 0, _c = 0, _d = 0): got.set(0, true), CONNECT_ONE_SHOT)
+                var to_s = float(step.get("timeout_seconds", 2))
+                var w0 = Time.get_ticks_msec()
+                while not got[0] and (Time.get_ticks_msec() - w0) < to_s * 1000:
+                    await process_frame
+                results.append({"assert": "wait_for_signal", "signal": str(step.signal_name), "ok": got[0], "detail": ("received" if got[0] else "timed out after " + str(to_s) + "s")})
+            "assert_property":
+                var an = resolve_node(inst, step.get("node", ""))
+                var aok = false
+                var adetail = ""
+                if an == null:
+                    adetail = "node not found: " + str(step.get("node", ""))
+                else:
+                    var actual = json_safe(an.get(str(step.property)))
+                    aok = _e2e_compare(actual, step.value, str(step.get("op", "==")))
+                    adetail = str(step.property) + " " + str(step.get("op", "==")) + " " + str(step.value) + " (actual=" + str(actual) + ")"
+                results.append({"assert": "property", "node": str(step.get("node", "")), "ok": aok, "detail": adetail})
+            "assert_node_exists":
+                var en = resolve_node(inst, step.get("node", ""))
+                var expected_exists = step.get("exists", true)
+                var eok = (en != null) == expected_exists
+                results.append({"assert": "node_exists", "node": str(step.get("node", "")), "ok": eok, "detail": "exists=" + str(en != null) + " expected=" + str(expected_exists)})
+            "assert_in_group":
+                var gn = resolve_node(inst, step.get("node", ""))
+                var expected_in = step.get("expected", true)
+                var in_grp = gn != null and gn.is_in_group(str(step.group))
+                results.append({"assert": "in_group", "node": str(step.get("node", "")), "ok": in_grp == expected_in, "detail": "in '" + str(step.group) + "'=" + str(in_grp) + " expected=" + str(expected_in)})
+            "assert_signal_emitted":
+                var skey = str(step.get("node", "")) + "|" + str(step.signal_name)
+                var count = sig_counts.get(skey, 0)
+                var minc = int(step.get("min_count", 1))
+                results.append({"assert": "signal_emitted", "signal": str(step.signal_name), "ok": count >= minc, "detail": "count=" + str(count) + " min=" + str(minc) + " (needs prior watch_signal)"})
+            "assert_method_returns":
+                var mn = resolve_node(inst, step.get("node", ""))
+                var mok = false
+                var mdetail = ""
+                if mn != null and mn.has_method(str(step.method)):
+                    var ret = json_safe(mn.callv(str(step.method), step.get("args", [])))
+                    mok = _e2e_compare(ret, step.value, str(step.get("op", "==")))
+                    mdetail = str(step.method) + "() " + str(step.get("op", "==")) + " " + str(step.value) + " (returned=" + str(ret) + ")"
+                else:
+                    mdetail = "method not found: " + str(step.get("method", ""))
+                results.append({"assert": "method_returns", "ok": mok, "detail": mdetail})
+            "assert_node_count":
+                var nodes = get_nodes_in_group(str(step.group))
+                var cnt = nodes.size()
+                results.append({"assert": "node_count", "ok": _e2e_scalar_compare(cnt, step.value, str(step.get("op", "=="))), "detail": "group '" + str(step.group) + "' count=" + str(cnt) + " " + str(step.get("op", "==")) + " " + str(step.value)})
+            _:
+                logs.append("unknown step action: '" + action + "'")
+
+    var passed = 0
+    var failed = 0
+    for r in results:
+        if r.get("ok", false):
+            passed += 1
+        else:
+            failed += 1
+
+    if is_instance_valid(inst):
+        inst.queue_free()
+    await process_frame
+
+    emit_result({
+        "scene": scene_path,
+        "passed": passed,
+        "failed": failed,
+        "total": results.size(),
+        "all_passed": failed == 0 and results.size() > 0,
+        "results": results,
+        "log": logs,
+    })

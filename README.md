@@ -108,6 +108,33 @@ The server exposes a full **inspect → mutate → validate** loop so an agent c
   - `add_input_action` / `remove_input_action`
   - `create_resource` / `edit_resource` / `get_resource_properties`
 
+### Automated e2e / UAT
+
+The missing *runtime* half of the loop: don't just check that a scene *loads* — verify the game *behaves* correctly. Godot's headless mode runs the full game loop (`_process`/`_physics_process` tick, signals fire, physics simulates), so these run real behavioral tests with no rendering.
+
+- **`run_scene_test`** — boots a scene headless, runs a scenario of **steps** (drive input, advance frames, call methods, watch signals) and **assertions** (property values, node existence, group membership, signal counts, method return values, node counts), and returns per-assertion pass/fail.
+- **`run_tests`** — runs an existing **GUT** or **GdUnit4** suite headless and returns the pass/fail summary (auto-detected from project addons).
+- **`capture_scene_screenshot`** — *experimental* visual UAT: renders a scene to a PNG (needs a GPU/display; falls back gracefully in pure-headless CI).
+
+Example scenario — verify the player moves right when the input is held:
+
+```json
+{
+  "projectPath": "/path/to/project",
+  "scenePath": "player.tscn",
+  "timeoutSeconds": 8,
+  "steps": [
+    { "action": "assert_node_exists", "node": "AnimatedSprite2D", "exists": true },
+    { "action": "press_action", "name": "move_right" },
+    { "action": "wait_frames", "frames": 20 },
+    { "action": "release_action", "name": "move_right" },
+    { "action": "assert_property", "node": "", "property": "position", "op": ">", "value": { "x": 0 } }
+  ]
+}
+```
+
+Returns: `{ "passed": 2, "failed": 0, "all_passed": true, "results": [...] }`.
+
 ## Requirements
 
 - [Godot Engine](https://godotengine.org/download) installed on your system

@@ -9,7 +9,7 @@
 
 import { fileURLToPath } from 'url';
 import { join, dirname, basename, normalize } from 'path';
-import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'fs';
+import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync, statSync, unlinkSync } from 'fs';
 import { spawn, execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -110,6 +110,8 @@ class GodotServer {
     'resource_class': 'resourceClass',
     'class_name_query': 'classNameQuery',
     'timeout_seconds': 'timeoutSeconds',
+    'test_path': 'testPath',
+    'wait_frames': 'waitFrames',
   };
 
   /**
@@ -505,7 +507,8 @@ class GodotServer {
   private async executeOperation(
     operation: string,
     params: OperationParams,
-    projectPath: string
+    projectPath: string,
+    timeoutMs: number = OPERATION_TIMEOUT_MS
   ): Promise<{ stdout: string; stderr: string; code: number }> {
     this.logDebug(`Executing operation: ${operation} in project: ${projectPath}`);
     this.logDebug(`Original operation params: ${JSON.stringify(params)}`);
@@ -547,7 +550,7 @@ class GodotServer {
       this.logDebug(`Executing: ${this.godotPath} ${args.join(' ')}`);
 
       const { stdout, stderr } = await execFileAsync(this.godotPath!, args, {
-        timeout: OPERATION_TIMEOUT_MS,
+        timeout: timeoutMs,
         maxBuffer: 1024 * 1024 * 32,
       });
 
@@ -558,7 +561,7 @@ class GodotServer {
       if (error instanceof Error && 'stdout' in error && 'stderr' in error) {
         const execError = error as Error & { stdout: string; stderr: string; code?: number; killed?: boolean };
         if (execError.killed) {
-          throw new Error(`Godot operation '${operation}' timed out after ${OPERATION_TIMEOUT_MS}ms`);
+          throw new Error(`Godot operation '${operation}' timed out after ${timeoutMs}ms`);
         }
         return {
           stdout: execError.stdout ?? '',
@@ -582,9 +585,10 @@ class GodotServer {
   private async executeStructuredOperation(
     operation: string,
     params: OperationParams,
-    projectPath: string
+    projectPath: string,
+    timeoutMs: number = OPERATION_TIMEOUT_MS
   ): Promise<{ success: boolean; result: any | null; stdout: string; stderr: string }> {
-    const { stdout, stderr, code } = await this.executeOperation(operation, params, projectPath);
+    const { stdout, stderr, code } = await this.executeOperation(operation, params, projectPath, timeoutMs);
 
     let result: any | null = null;
     for (const line of stdout.split('\n')) {
@@ -1463,6 +1467,66 @@ class GodotServer {
             required: ['projectPath', 'resourcePath'],
           },
         },
+        // ===== Automated e2e / UAT =====
+        {
+          name: 'run_scene_test',
+          description:
+            'Automated end-to-end / UAT test of a scene. Boots the scene headless (real game loop, no rendering), runs a sequence of steps, and evaluates assertions against live game state. Returns per-assertion pass/fail.\n\n' +
+            'Each step is an object with an "action". Driver actions: ' +
+            '{action:"wait_frames",frames:N} | {action:"wait_seconds",seconds:S} | ' +
+            '{action:"press_action",name:"jump",strength:1.0} | {action:"release_action",name:"jump"} | ' +
+            '{action:"tap_action",name:"jump",frames:2} | {action:"key",key:"Space",pressed:true} | ' +
+            '{action:"mouse_button",button:1,position:[x,y],pressed:true} | {action:"mouse_move",position:[x,y]} | ' +
+            '{action:"set_property",node:"Path",property:"x",value:1} | {action:"call_method",node:"Path",method:"start",args:[]} | ' +
+            '{action:"emit_signal",node:"Path",signal_name:"hit",args:[]} | {action:"watch_signal",node:"Path",signal_name:"hit"} | ' +
+            '{action:"wait_for_signal",node:"Path",signal_name:"hit",timeout_seconds:2}. ' +
+            'Assertion actions: ' +
+            '{action:"assert_property",node:"Path",property:"position",op:">",value:{x:0}} (op: ==,!=,>,<,>=,<=; for vectors/colors only the provided components are checked) | ' +
+            '{action:"assert_node_exists",node:"Path",exists:true} | {action:"assert_in_group",node:"Path",group:"mobs",expected:true} | ' +
+            '{action:"assert_signal_emitted",node:"Path",signal_name:"hit",min_count:1} (requires a prior watch_signal) | ' +
+            '{action:"assert_method_returns",node:"Path",method:"get_score",args:[],op:">=",value:10} | ' +
+            '{action:"assert_node_count",group:"mobs",op:">",value:0}. ' +
+            'Node paths are relative to the scene root ("" or "root" = root).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene to test (relative to project)' },
+              steps: { type: 'array', description: 'Ordered list of step objects (see description)', items: { type: 'object' } },
+              timeoutSeconds: { type: 'number', description: 'Max wall-clock seconds for the whole scenario (default 10)' },
+            },
+            required: ['projectPath', 'scenePath', 'steps'],
+          },
+        },
+        {
+          name: 'run_tests',
+          description: 'Run a GUT or GdUnit4 test suite headless and return the pass/fail summary. Auto-detects the framework from the project addons.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              testPath: { type: 'string', description: 'Optional directory or file of tests to run (relative to project, e.g. test/ or res://test)' },
+              framework: { type: 'string', enum: ['auto', 'gut', 'gdunit4'], description: 'Force a framework (default auto-detect)' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'capture_scene_screenshot',
+          description: 'EXPERIMENTAL visual UAT: boot a scene with a rendering driver and save a PNG screenshot. Requires a GPU/display or a software rasterizer; may fail in pure-headless CI. Returns the image.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene to capture (relative to project)' },
+              outputPath: { type: 'string', description: 'Where to save the PNG (relative to project, default user://screenshot.png)' },
+              waitFrames: { type: 'number', description: 'Frames to advance before capturing (default 5)' },
+              width: { type: 'number', description: 'Viewport width (default from project settings)' },
+              height: { type: 'number', description: 'Viewport height (default from project settings)' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
       ],
     }));
 
@@ -1569,6 +1633,13 @@ class GodotServer {
           return await this.handleEditResource(request.params.arguments);
         case 'get_resource_properties':
           return await this.handleGetResourceProperties(request.params.arguments);
+        // --- e2e / UAT ---
+        case 'run_scene_test':
+          return await this.handleRunSceneTest(request.params.arguments);
+        case 'run_tests':
+          return await this.handleRunTests(request.params.arguments);
+        case 'capture_scene_screenshot':
+          return await this.handleCaptureSceneScreenshot(request.params.arguments);
         default:
           throw new McpError(
             ErrorCode.MethodNotFound,
@@ -3211,6 +3282,142 @@ class GodotServer {
     if (!args.resourcePath) return this.missing('resourcePath');
     return this.dispatchOp('get_resource_properties', args.projectPath, { resourcePath: args.resourcePath },
       `Properties of '${args.resourcePath}':`, [args.resourcePath]);
+  }
+
+  // ----- Automated e2e / UAT -----
+
+  private async handleRunSceneTest(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.steps) return this.missing('scenePath', 'steps');
+    if (!Array.isArray(args.steps)) {
+      return this.createErrorResponse('steps must be an array of step objects', ['See the run_scene_test description for the step schema']);
+    }
+    const err = this.checkProject(args.projectPath, args.scenePath);
+    if (err) return err;
+    const scenarioSeconds = typeof args.timeoutSeconds === 'number' ? args.timeoutSeconds : 10;
+    // Give the process headroom beyond the scenario's own internal timeout.
+    const procTimeout = Math.max(OPERATION_TIMEOUT_MS, (scenarioSeconds + 30) * 1000);
+    try {
+      const { result, stderr, stdout } = await this.executeStructuredOperation(
+        'run_scene_test',
+        { scenePath: args.scenePath, steps: args.steps, timeoutSeconds: scenarioSeconds },
+        args.projectPath,
+        procTimeout
+      );
+      if (result === null) {
+        const detail = (stderr && stderr.trim()) || (stdout && stdout.trim()) || 'unknown error';
+        return this.createErrorResponse(`run_scene_test failed to run: ${detail}`, [
+          'Ensure the scene instantiates (try validate_scene first)',
+          'Check that referenced input actions exist (add_input_action)',
+        ]);
+      }
+      const verdict = result.all_passed ? '✅ ALL PASSED' : `❌ ${result.failed} FAILED`;
+      const summary = `e2e test of '${args.scenePath}': ${verdict} (${result.passed}/${result.total} assertions passed)`;
+      return this.structuredResponse(summary, result);
+    } catch (error: any) {
+      return this.createErrorResponse(`run_scene_test failed: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleRunTests(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath, args.testPath);
+    if (err) return err;
+    try {
+      const hasGut = existsSync(join(args.projectPath, 'addons', 'gut'));
+      const hasGdUnit = existsSync(join(args.projectPath, 'addons', 'gdUnit4'));
+      let framework = args.framework && args.framework !== 'auto' ? args.framework : (hasGut ? 'gut' : hasGdUnit ? 'gdunit4' : null);
+      if (!framework) {
+        return this.createErrorResponse('No supported test framework found (looked for addons/gut and addons/gdUnit4).', [
+          'Install GUT (https://github.com/bitwes/Gut) or GdUnit4 (https://github.com/MikeSchulze/gdUnit4)',
+          'For framework-free tests, use run_scene_test instead',
+        ]);
+      }
+      let cmdArgs: string[];
+      if (framework === 'gut') {
+        cmdArgs = ['--headless', '--path', args.projectPath, '-s', 'res://addons/gut/gut_cmdln.gd', '-gexit'];
+        cmdArgs.push(args.testPath ? `-gdir=${args.testPath.startsWith('res://') ? args.testPath : 'res://' + args.testPath}` : '-gdir=res://test');
+      } else {
+        // GdUnit4 headless runner
+        cmdArgs = ['--headless', '--path', args.projectPath, '-s', 'res://addons/gdUnit4/bin/GdUnitCmdTool.gd'];
+        if (args.testPath) cmdArgs.push('-a', args.testPath);
+      }
+      const { stdout, stderr, code } = await this.executeRaw(cmdArgs, 180000);
+      const combined = `${stdout}\n${stderr}`;
+      // Best-effort summary extraction.
+      const summaryLines = combined.split('\n').filter((l) => /pass|fail|error|total|tests?\b/i.test(l)).slice(-12);
+      return this.structuredResponse(`Ran ${framework} tests (exit ${code}):`, {
+        framework,
+        exitCode: code,
+        passed: code === 0,
+        summary: summaryLines,
+        outputTail: combined.split('\n').slice(-40).join('\n'),
+      });
+    } catch (error: any) {
+      return this.createErrorResponse(`run_tests failed: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleCaptureSceneScreenshot(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    const err = this.checkProject(args.projectPath, args.scenePath);
+    if (err) return err;
+    try {
+      if (!this.godotPath) {
+        await this.detectGodotPath();
+        if (!this.godotPath) throw new Error('Could not find a valid Godot executable path');
+      }
+      const sceneRes = args.scenePath.startsWith('res://') ? args.scenePath : 'res://' + args.scenePath;
+      const outRel = args.outputPath || 'screenshot.png';
+      const outAbs = join(args.projectPath, outRel.replace(/^res:\/\//, ''));
+      const waitFrames = typeof args.waitFrames === 'number' ? args.waitFrames : 5;
+      // A tiny throwaway capture script written into the project temporarily.
+      const outResRel = outRel.replace(/^res:\/\//, '');
+      const capScript = [
+        'extends SceneTree',
+        'func _init():',
+        `\tvar inst = load("${sceneRes}").instantiate()`,
+        '\tget_root().add_child(inst)',
+        `\tfor i in ${waitFrames}:`,
+        '\t\tawait process_frame',
+        '\tawait process_frame',
+        '\tvar img = get_root().get_texture().get_image()',
+        '\tif img == null:',
+        '\t\tprinterr("Failed to capture viewport image (no rendering surface)")',
+        '\t\tquit(1)',
+        `\tvar e = img.save_png("res://${outResRel}")`,
+        '\tif e != OK:',
+        '\t\tprinterr("Failed to save PNG (error " + str(e) + ")")',
+        '\t\tquit(1)',
+        `\tprint("${RESULT_MARKER}" + JSON.stringify({"saved": "${outRel}"}))`,
+        '\tquit(0)',
+        '',
+      ].join('\n');
+      const tmpScript = join(args.projectPath, '.godot_mcp_capture.gd');
+      writeFileSync(tmpScript, capScript, 'utf-8');
+      try {
+        const cmdArgs = ['--path', args.projectPath, '--rendering-driver', 'opengl3', '--script', 'res://.godot_mcp_capture.gd'];
+        const { stdout, stderr, code } = await this.executeRaw(cmdArgs, 60000);
+        if (code !== 0 || !existsSync(outAbs)) {
+          return this.createErrorResponse(
+            `Screenshot capture failed (headless rendering unavailable on this host). ${stderr.trim() || stdout.trim()}`,
+            ['This feature needs a GPU/display or software rasterizer', 'Behavioral testing via run_scene_test works without rendering']
+          );
+        }
+        const png = readFileSync(outAbs);
+        return {
+          content: [
+            { type: 'text', text: `Captured screenshot of '${args.scenePath}' -> ${outRel}` },
+            { type: 'image', data: png.toString('base64'), mimeType: 'image/png' },
+          ],
+        };
+      } finally {
+        try { if (existsSync(tmpScript)) unlinkSync(tmpScript); } catch { /* ignore */ }
+      }
+    } catch (error: any) {
+      return this.createErrorResponse(`capture_scene_screenshot failed: ${error?.message || 'Unknown error'}`, []);
+    }
   }
 
   /**

@@ -1,7 +1,7 @@
 {
   "name": "godot-mcp-extended",
-  "version": "0.2.0",
-  "description": "MCP server for the Godot game engine with a full inspect -> edit -> validate toolset (47 tools): scene inspection, node editing, signals, scripts, resources, and project settings.",
+  "version": "0.3.0",
+  "description": "MCP server for the Godot game engine with a full inspect -> edit -> validate -> e2e toolset (50 tools): scene inspection, node editing, signals, scripts, resources, project settings, and automated headless e2e/UAT testing.",
   "keywords": [
     "godot",
     "mcp",
