@@ -1,15 +1,10 @@
-# Godot MCP
-
-[![Github-sponsors](https://img.shields.io/badge/sponsor-30363D?style=for-the-badge&logo=GitHub-Sponsors&logoColor=#EA4AAA)](https://github.com/sponsors/Coding-Solo)
+# Godot MCP Extended
 
 [![](https://badge.mcpx.dev?type=server 'MCP Server')](https://modelcontextprotocol.io/introduction)
 [![Made with Godot](https://img.shields.io/badge/Made%20with-Godot-478CBF?style=flat&logo=godot%20engine&logoColor=white)](https://godotengine.org)
 [![](https://img.shields.io/badge/Node.js-339933?style=flat&logo=nodedotjs&logoColor=white 'Node.js')](https://nodejs.org/en/download/)
 [![](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white 'TypeScript')](https://www.typescriptlang.org/)
 
-[![](https://img.shields.io/github/last-commit/Coding-Solo/godot-mcp 'Last Commit')](https://github.com/Coding-Solo/godot-mcp/commits/main)
-[![](https://img.shields.io/github/stars/Coding-Solo/godot-mcp 'Stars')](https://github.com/Coding-Solo/godot-mcp/stargazers)
-[![](https://img.shields.io/github/forks/Coding-Solo/godot-mcp 'Forks')](https://github.com/Coding-Solo/godot-mcp/network/members)
 [![](https://img.shields.io/badge/License-MIT-red.svg 'MIT License')](https://opensource.org/licenses/MIT)
 
 
@@ -59,7 +54,7 @@ A Model Context Protocol (MCP) server for interacting with the Godot game engine
 
 Godot MCP enables AI agents to launch the Godot editor, run projects, capture debug output, and control project execution. This direct feedback loop helps agents understand what works and what doesn't in real Godot projects, leading to better code generation and debugging assistance.
 
-> This project (`godot-mcp-extended`) builds on the original [godot-mcp](https://github.com/Coding-Solo/godot-mcp) by Solomon Elias (MIT), adding a full inspect → edit → validate toolset (47 tools total).
+> This project (`godot-mcp-extended`) builds on the original [godot-mcp](https://github.com/Coding-Solo/godot-mcp) by Solomon Elias (MIT), adding a full inspect → edit → validate → e2e toolset (50 tools total).
 
 ## Features
 
@@ -141,20 +136,45 @@ Returns: `{ "passed": 2, "failed": 0, "all_passed": true, "results": [...] }`.
 - Node.js (>=18.0.0) and npm
 - An AI agent that supports MCP
 
+## Install
+
+This server is distributed via GitHub (not npm). Clone and build it once:
+
+```bash
+git clone https://github.com/ibnutoriq/godot-mcp-extended.git
+cd godot-mcp-extended
+npm install
+npm run build
+```
+
+This produces `build/index.js`. Note the **absolute path** to that file — your MCP client points at it. Get it with:
+
+```bash
+echo "$(pwd)/build/index.js"
+```
+
+> **No-clone alternative:** any `node /path/to/build/index.js` command below can be replaced with `npx -y github:ibnutoriq/godot-mcp-extended`, which fetches and builds the repo on first run. Slower to start, but nothing to clone.
+
 ## Quick Start
 
 ### Claude Code
 
 ```bash
-claude mcp add godot -- npx @coding-solo/godot-mcp
+claude mcp add godot -- node /absolute/path/to/godot-mcp-extended/build/index.js
 ```
 
 That's it. Restart Claude Code and your Godot MCP tools are available.
 
-With environment variables:
+With environment variables (Godot path is auto-detected; set it only if needed):
 
 ```bash
-claude mcp add godot -e GODOT_PATH=/path/to/godot -e DEBUG=true -- npx @coding-solo/godot-mcp
+claude mcp add godot -e GODOT_PATH=/path/to/godot -- node /absolute/path/to/godot-mcp-extended/build/index.js
+```
+
+Or without cloning:
+
+```bash
+claude mcp add godot -- npx -y github:ibnutoriq/godot-mcp-extended
 ```
 
 <details>
@@ -166,32 +186,28 @@ Add to your Cline MCP settings file (`~/Library/Application Support/Code/User/gl
 {
   "mcpServers": {
     "godot": {
-      "command": "npx",
-      "args": ["@coding-solo/godot-mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/godot-mcp-extended/build/index.js"],
       "env": {
-        "DEBUG": "true"
+        "GODOT_PATH": "/path/to/godot"
       },
       "disabled": false,
       "autoApprove": [
-        "launch_editor",
-        "run_project",
-        "get_debug_output",
-        "stop_project",
+        "get_scene_tree",
+        "get_node_properties",
+        "describe_class",
         "get_godot_version",
         "list_projects",
         "get_project_info",
-        "create_scene",
-        "add_node",
-        "load_sprite",
-        "export_mesh_library",
-        "save_scene",
-        "get_uid",
-        "update_project_uids"
+        "check_script",
+        "validate_scene"
       ]
     }
   }
 }
 ```
+
+> `autoApprove` lists the read-only tools that won't prompt for confirmation. Add any of the other tool names you want to run without a prompt.
 
 </details>
 
@@ -205,7 +221,7 @@ Add to your Cline MCP settings file (`~/Library/Application Support/Code/User/gl
 3. Fill out the form:
    - Name: `godot`
    - Type: `command`
-   - Command: `npx @coding-solo/godot-mcp`
+   - Command: `node /absolute/path/to/godot-mcp-extended/build/index.js`
 4. Click "Add"
 5. You may need to press the refresh button in the top right corner of the MCP server card to populate the tool list
 
@@ -217,10 +233,10 @@ Create a file at `.cursor/mcp.json` in your project directory:
 {
   "mcpServers": {
     "godot": {
-      "command": "npx",
-      "args": ["@coding-solo/godot-mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/godot-mcp-extended/build/index.js"],
       "env": {
-        "DEBUG": "true"
+        "GODOT_PATH": "/path/to/godot"
       }
     }
   }
@@ -238,16 +254,17 @@ For any MCP-compatible client, use this configuration:
 {
   "mcpServers": {
     "godot": {
-      "command": "npx",
-      "args": ["@coding-solo/godot-mcp"],
+      "command": "node",
+      "args": ["/absolute/path/to/godot-mcp-extended/build/index.js"],
       "env": {
-        "GODOT_PATH": "/path/to/godot",
-        "DEBUG": "true"
+        "GODOT_PATH": "/path/to/godot"
       }
     }
   }
 }
 ```
+
+Prefer no clone? Use `"command": "npx"` with `"args": ["-y", "github:ibnutoriq/godot-mcp-extended"]` instead.
 
 </details>
 
@@ -258,19 +275,6 @@ For any MCP-compatible client, use this configuration:
 | `GODOT_PATH` | Path to the Godot executable (overrides automatic detection) |
 | `DEBUG` | Set to `"true"` to enable detailed server-side debug logging |
 
-<details>
-<summary><strong>Building from Source</strong></summary>
-
-```bash
-git clone https://github.com/Coding-Solo/godot-mcp.git
-cd godot-mcp
-npm install
-npm run build
-```
-
-Then point your MCP client to `build/index.js` instead of using `npx`.
-
-</details>
 
 
 ## Architecture
@@ -297,6 +301,10 @@ The bundled script accepts operation type and parameters as JSON, allowing for f
 - Use "Yolo Mode" to automatically run MCP tool requests
 
 </details>
+
+## Credits
+
+`godot-mcp-extended` is maintained by [Ibnu Toriq](https://github.com/ibnutoriq). It is based on the original [godot-mcp](https://github.com/Coding-Solo/godot-mcp) by Solomon Elias, used under the MIT License. Thanks to the original author for the foundation this builds on.
 
 ## License
 
