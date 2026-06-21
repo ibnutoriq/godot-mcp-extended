@@ -120,6 +120,79 @@ class GodotServer {
     'preset_name': 'presetName',
     'export_path': 'exportPath',
     'debug_export': 'debugExport',
+    // TileMap toolset params
+    'source_id': 'sourceId',
+    'atlas_coords': 'atlasCoords',
+    'alternative': 'alternative',
+    // Audio toolset params
+    'volume_db': 'volumeDb',
+    'bus_index': 'busIndex',
+    'bus_name': 'busName',
+    'effect_type': 'effectType',
+    'send_bus': 'sendBus',
+    'bypass_effects': 'bypassEffects',
+    'is_3d': 'is3d',
+    'is_2d': 'is2d',
+    'parent_path': 'parentPath',
+    // Shader / Theme / Control toolset params
+    'shader_type': 'shaderType',
+    'shader_path': 'shaderPath',
+    'theme_path': 'themePath',
+    'theme_type': 'themeType',
+    'stylebox_type': 'styleboxType',
+    'anchor_preset': 'anchorPreset',
+    'h_size_flags': 'hSizeFlags',
+    'v_size_flags': 'vSizeFlags',
+    // Particles toolset params
+    'emission_shape': 'emissionShape',
+    'one_shot': 'oneShot',
+    'initial_velocity_min': 'initialVelocityMin',
+    'initial_velocity_max': 'initialVelocityMax',
+    'scale_min': 'scaleMin',
+    'scale_max': 'scaleMax',
+    'angular_velocity_min': 'angularVelocityMin',
+    'angular_velocity_max': 'angularVelocityMax',
+    'orbit_velocity_min': 'orbitVelocityMin',
+    'orbit_velocity_max': 'orbitVelocityMax',
+    'damping_min': 'dampingMin',
+    'damping_max': 'dampingMax',
+    // Physics toolset params
+    'collision_layer': 'collisionLayer',
+    'collision_mask': 'collisionMask',
+    'motion_mode': 'motionMode',
+    'gravity_scale': 'gravityScale',
+    'linear_damp': 'linearDamp',
+    'angular_damp': 'angularDamp',
+    'freeze_mode': 'freezeMode',
+    'contact_monitor': 'contactMonitor',
+    'max_contacts_reported': 'maxContactsReported',
+    'shape_type': 'shapeType',
+    'one_way_collision': 'oneWayCollision',
+    'target_position': 'targetPosition',
+    // Navigation toolset params
+    'navigation_layers': 'navigationLayers',
+    'outline_vertices': 'outlineVertices',
+    'max_speed': 'maxSpeed',
+    'path_desired_distance': 'pathDesiredDistance',
+    'target_desired_distance': 'targetDesiredDistance',
+    'avoidance_enabled': 'avoidanceEnabled',
+    // 3D toolset params
+    'mesh_type': 'meshType',
+    'light_type': 'lightType',
+    'surface_index': 'surfaceIndex',
+    'albedo_color': 'albedoColor',
+    'background_mode': 'backgroundMode',
+    'clear_color': 'clearColor',
+    'mesh_library': 'meshLibrary',
+    'cell_size': 'cellSize',
+    // Node / script / batch / uid toolset params
+    'new_parent': 'newParent',
+    'resource_type': 'resourceType',
+    'node_paths': 'nodePaths',
+    'scene_paths': 'scenePaths',
+    'dry_run': 'dryRun',
+    'axis_value': 'axisValue',
+    'button_index': 'buttonIndex',
   };
 
   /**
@@ -1727,6 +1800,1450 @@ class GodotServer {
             required: ['projectPath', 'presetName', 'exportPath'],
           },
         },
+        // ----- Inspection / analysis (read-only) -----
+        {
+          name: 'get_filesystem_tree',
+          description: 'Return the project file/folder hierarchy as a nested tree (directories, files, extensions, sizes). Skips hidden and .import folders.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              subPath: { type: 'string', description: 'Optional project-relative sub-folder to start from (default: project root)' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'search_files',
+          description: 'Find project files by name substring or simple glob (use * and ?), optionally filtered by extension. Returns matching project-relative paths.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              pattern: { type: 'string', description: 'Name substring, or glob with * / ? (matched against the relative path)' },
+              extension: { type: 'string', description: 'Optional extension filter without the dot (e.g. "gd", "tscn")' },
+              maxResults: { type: 'number', description: 'Maximum results to return (default 500)' },
+            },
+            required: ['projectPath', 'pattern'],
+          },
+        },
+        {
+          name: 'search_in_files',
+          description: 'Search file contents (grep) across the project for a text query. Returns file/line/text matches. Defaults to text-ish extensions.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              query: { type: 'string', description: 'Text to search for' },
+              extensions: { type: 'array', items: { type: 'string' }, description: 'Extensions to search (default: gd, tscn, tres, cfg, godot, json, md, txt, cs, gdshader)' },
+              caseSensitive: { type: 'boolean', description: 'Case-sensitive match (default false)' },
+              maxResults: { type: 'number', description: 'Maximum matches to return (default 200)' },
+            },
+            required: ['projectPath', 'query'],
+          },
+        },
+        {
+          name: 'get_project_statistics',
+          description: 'Summarize the project: counts of scenes, scripts and resources, total script lines, total node instances across scenes, autoloads, and a file-count-by-extension breakdown.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'get_scene_file_content',
+          description: 'Return the raw text content of a scene (.tscn) or resource (.tres) file.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn/.tres file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'find_script_references',
+          description: 'Find every place a given script is referenced across scenes, resources, scripts and project.godot. Returns file/line/text matches.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scriptPath: { type: 'string', description: 'Project-relative path to the script (e.g. player.gd or res://player.gd)' },
+            },
+            required: ['projectPath', 'scriptPath'],
+          },
+        },
+        {
+          name: 'find_node_references',
+          description: 'Find references to a node by name in scripts: get_node("Name"), $Name, %Name and NodePath usages. Returns file/line/text matches.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              nodeName: { type: 'string', description: 'The node name to search for' },
+            },
+            required: ['projectPath', 'nodeName'],
+          },
+        },
+        {
+          name: 'find_unused_resources',
+          description: 'Heuristically list resource/asset files (textures, audio, .tres, fonts, meshes, shaders) that are not referenced by any scene, resource, script or project.godot. May report false positives for dynamically-loaded paths.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'detect_circular_dependencies',
+          description: 'Detect circular scene dependencies (scene A instances scene B which instances A ...) by scanning ext_resource references in .tscn files. Returns any cycles found.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'find_signal_connections',
+          description: 'List the signal connections declared in a scene file (from node, signal, to node, method, flags) by parsing its [connection] entries.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'list_export_presets',
+          description: 'List the export presets defined in export_presets.cfg (name, platform, runnable, export path).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'get_export_info',
+          description: 'Return the full configuration of a single export preset from export_presets.cfg by name.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              presetName: { type: 'string', description: 'The export preset name' },
+            },
+            required: ['projectPath', 'presetName'],
+          },
+        },
+        {
+          name: 'read_resource',
+          description: 'Read a resource file. For text resources (.tres/.tscn/.gd/.gdshader/.cfg) returns the file text; for binary resources reports the type and size.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              resourcePath: { type: 'string', description: 'Project-relative path to the resource file' },
+            },
+            required: ['projectPath', 'resourcePath'],
+          },
+        },
+        // ----- Inspection / analysis (engine-backed) -----
+        {
+          name: 'analyze_scene_complexity',
+          description: 'Analyze a scene: total node count, maximum tree depth, node count by class, and number of attached scripts.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'analyze_signal_flow',
+          description: 'List every signal connection in a scene with the emitting node, signal name, target node and target method (resolved from the live scene tree).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'get_project_settings',
+          description: 'Return all project settings (from ProjectSettings), optionally filtered to keys containing a substring.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              filter: { type: 'string', description: 'Optional case-insensitive substring filter on the setting key (e.g. "physics", "display")' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'get_scene_exports',
+          description: 'List the exported (@export) variables of a scene root\'s script, with their types and current values.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'get_node_groups',
+          description: 'Return the groups a specific node belongs to within a scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn file' },
+              nodePath: { type: 'string', description: 'Path to the node within the scene' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'find_nodes_by_type',
+          description: 'Find all nodes of a given class (including subclasses, via is_class) within a scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn file' },
+              type: { type: 'string', description: 'Class name to match (e.g. Area2D, Sprite2D, Button)' },
+            },
+            required: ['projectPath', 'scenePath', 'type'],
+          },
+        },
+        {
+          name: 'find_nodes_in_group',
+          description: 'Find all nodes that belong to a given group within a scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn file' },
+              group: { type: 'string', description: 'The group name' },
+            },
+            required: ['projectPath', 'scenePath', 'group'],
+          },
+        },
+        {
+          name: 'get_input_actions',
+          description: 'List the project\'s input actions and their bound events (from the InputMap). Built-in ui_* actions are excluded unless includeBuiltin is true.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              includeBuiltin: { type: 'boolean', description: 'Include built-in ui_* actions (default false)' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        // ===== TileMap (TileMapLayer / legacy TileMap) =====
+        {
+          name: 'tilemap_set_cell',
+          description: 'Set a single cell on a TileMapLayer (or legacy TileMap) node. sourceId -1 erases the cell. Coordinates are integer cell coordinates; atlasCoords is the tile within the source atlas.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the TileMapLayer/TileMap node within the scene' },
+              x: { type: 'number', description: 'Cell X coordinate' },
+              y: { type: 'number', description: 'Cell Y coordinate' },
+              sourceId: { type: 'number', description: 'TileSet source id (default -1, which erases the cell)' },
+              atlasCoords: { type: 'array', items: { type: 'number' }, description: 'Atlas coordinates [ax, ay] within the source (default [0,0])' },
+              alternative: { type: 'number', description: 'Alternative tile id (default 0)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'x', 'y'],
+          },
+        },
+        {
+          name: 'tilemap_fill_rect',
+          description: 'Fill a w x h rectangle of cells on a TileMapLayer (or legacy TileMap) node starting at (x,y) with the given tile. sourceId -1 erases the rectangle.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the TileMapLayer/TileMap node within the scene' },
+              x: { type: 'number', description: 'Top-left cell X coordinate' },
+              y: { type: 'number', description: 'Top-left cell Y coordinate' },
+              w: { type: 'number', description: 'Width in cells' },
+              h: { type: 'number', description: 'Height in cells' },
+              sourceId: { type: 'number', description: 'TileSet source id (default -1, which erases the cells)' },
+              atlasCoords: { type: 'array', items: { type: 'number' }, description: 'Atlas coordinates [ax, ay] within the source (default [0,0])' },
+              alternative: { type: 'number', description: 'Alternative tile id (default 0)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'x', 'y', 'w', 'h'],
+          },
+        },
+        {
+          name: 'tilemap_get_cell',
+          description: 'Read a single cell from a TileMapLayer (or legacy TileMap) node. Returns its source_id, atlas_coords, alternative, and whether it is empty.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the TileMapLayer/TileMap node within the scene' },
+              x: { type: 'number', description: 'Cell X coordinate' },
+              y: { type: 'number', description: 'Cell Y coordinate' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'x', 'y'],
+          },
+        },
+        {
+          name: 'tilemap_clear',
+          description: 'Clear all cells on a TileMapLayer (or legacy TileMap) node and save the scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the TileMapLayer/TileMap node within the scene' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'tilemap_get_info',
+          description: 'Read-only summary of a TileMapLayer (or legacy TileMap) node: the TileSet tile size, the number of used cells, and the list of TileSet source ids.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the TileMapLayer/TileMap node within the scene' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'tilemap_get_used_cells',
+          description: 'Read-only list of all used (non-empty) cells on a TileMapLayer (or legacy TileMap) node, each with its coordinates, source_id, atlas_coords, and alternative.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the TileMapLayer/TileMap node within the scene' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        // ===== Animation (AnimationPlayer) =====
+        {
+          name: 'list_animations',
+          description: 'List the animations stored on an AnimationPlayer node (names and count). Read-only.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationPlayer node within the scene' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'add_animation_track',
+          description: 'Add a track to an existing animation on an AnimationPlayer and save. trackPath is a NodePath such as "Sprite2D:position". Returns the new track index.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationPlayer node within the scene' },
+              animation: { type: 'string', description: 'Name of the existing animation to modify' },
+              trackPath: { type: 'string', description: 'NodePath of the track target, e.g. "Sprite2D:position"' },
+              trackType: { type: 'string', description: 'Track type: value (default), position_3d, rotation_3d, scale_3d, method, bezier, audio, animation' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'animation', 'trackPath'],
+          },
+        },
+        {
+          name: 'set_animation_keyframe',
+          description: 'Insert a keyframe on a track of an animation and save. Identify the track by trackIndex or trackPath. easing is the optional key transition. Returns the inserted key index.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationPlayer node within the scene' },
+              animation: { type: 'string', description: 'Name of the existing animation to modify' },
+              trackIndex: { type: 'number', description: 'Index of the track to key (alternative to trackPath)' },
+              trackPath: { type: 'string', description: 'NodePath of the track to key (alternative to trackIndex)' },
+              time: { type: 'number', description: 'Time in seconds at which to insert the key' },
+              value: { description: 'Value for the keyframe (coerced to the track target type for value tracks)' },
+              easing: { type: 'number', description: 'Optional key transition / easing factor (default 1.0)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'animation', 'time'],
+          },
+        },
+        {
+          name: 'get_animation_info',
+          description: 'Read-only details of an animation on an AnimationPlayer: length, loop_mode, step, track_count and per-track {index, path, type, key_count}.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationPlayer node within the scene' },
+              animation: { type: 'string', description: 'Name of the animation to inspect' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'animation'],
+          },
+        },
+        {
+          name: 'remove_animation',
+          description: 'Remove a named animation from its AnimationPlayer library and save. Returns removed:true.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationPlayer node within the scene' },
+              animation: { type: 'string', description: 'Name of the animation to remove' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'animation'],
+          },
+        },
+        // ===== AnimationTree =====
+        {
+          name: 'create_animation_tree',
+          description: 'Create an AnimationTree node under a parent, set its tree_root (state_machine or blend_tree) and anim_player NodePath, then save. Returns the created node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Name for the new AnimationTree node' },
+              parentPath: { type: 'string', description: 'Path of the parent node to add under (default scene root)' },
+              animPlayer: { type: 'string', description: 'NodePath (relative to the AnimationTree) of an AnimationPlayer' },
+              rootType: { type: 'string', description: 'Tree root type: state_machine (default) or blend_tree' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'get_animation_tree_structure',
+          description: 'Read-only structure of an AnimationTree node: root_type, and for a state machine its state names and transitions, or for a blend tree its sub-node names.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationTree node within the scene' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'add_state_machine_state',
+          description: 'Add a state node to the state machine root of an AnimationTree and save. stateType selects the sub-node kind; animation states can reference an animation name.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationTree node within the scene' },
+              stateName: { type: 'string', description: 'Name of the new state' },
+              stateType: { type: 'string', description: 'State type: animation (default), blend_tree, blend_space_1d, blend_space_2d, state_machine' },
+              animation: { type: 'string', description: 'Animation name for an animation state' },
+              position: { type: 'array', items: { type: 'number' }, description: 'Editor position [x, y] (default [0, 0])' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'stateName'],
+          },
+        },
+        {
+          name: 'remove_state_machine_state',
+          description: 'Remove a state node from the state machine root of an AnimationTree and save.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationTree node within the scene' },
+              stateName: { type: 'string', description: 'Name of the state to remove' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'stateName'],
+          },
+        },
+        {
+          name: 'add_state_machine_transition',
+          description: 'Add a transition between two states of a state machine AnimationTree root and save. switchMode (immediate|sync|at_end) and advanceMode (disabled|enabled|auto) configure the transition.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationTree node within the scene' },
+              from: { type: 'string', description: 'Source state name' },
+              to: { type: 'string', description: 'Destination state name' },
+              switchMode: { type: 'string', description: 'Switch mode: immediate (default), sync, at_end' },
+              advanceMode: { type: 'string', description: 'Advance mode: disabled, enabled (default), auto' },
+              advanceExpression: { type: 'string', description: 'Optional advance expression string' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'from', 'to'],
+          },
+        },
+        {
+          name: 'remove_state_machine_transition',
+          description: 'Remove the transition between two states of a state machine AnimationTree root and save.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationTree node within the scene' },
+              from: { type: 'string', description: 'Source state name' },
+              to: { type: 'string', description: 'Destination state name' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'from', 'to'],
+          },
+        },
+        {
+          name: 'set_blend_tree_node',
+          description: 'Add or replace a sub-node on a blend tree AnimationTree root and save. btNodeType selects the blend node kind (e.g. animation, blend2, blend3, add2, oneshot, timescale, output).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationTree node within the scene' },
+              btNodeName: { type: 'string', description: 'Name of the blend tree sub-node' },
+              btNodeType: { type: 'string', description: 'Sub-node type: animation, blend2, blend3, add2, add3, oneshot, timescale, timeseek, transition, output' },
+              position: { type: 'array', items: { type: 'number' }, description: 'Editor position [x, y] (default [0, 0])' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'btNodeName', 'btNodeType'],
+          },
+        },
+        {
+          name: 'set_tree_parameter',
+          description: 'Set a runtime parameter on an AnimationTree (e.g. "conditions/jump" or "Blend2/blend_amount") via parameters/<parameter> and save. Returns the value that was set.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the AnimationTree node within the scene' },
+              parameter: { type: 'string', description: 'Parameter path under parameters/, e.g. "conditions/jump"' },
+              value: { description: 'Value to assign to the parameter' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'parameter', 'value'],
+          },
+        },
+        // ===== Audio (AudioServer buses + AudioStreamPlayer nodes) =====
+        {
+          name: 'add_audio_bus',
+          description: 'Add a new audio bus to the project audio bus layout, set its name and send target, and persist the layout. Returns the new bus index and name.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              name: { type: 'string', description: 'Name for the new bus' },
+              sendBus: { type: 'string', description: 'Name of the bus this bus sends to (default "Master")' },
+            },
+            required: ['projectPath', 'name'],
+          },
+        },
+        {
+          name: 'set_audio_bus',
+          description: 'Set properties on an existing audio bus (identified by busName or busIndex) and persist the layout. Any of volumeDb, solo, mute, bypassEffects, send may be provided. Returns the bus resulting state.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              busName: { type: 'string', description: 'Name of the bus to modify (alternative to busIndex)' },
+              busIndex: { type: 'number', description: 'Index of the bus to modify (alternative to busName)' },
+              volumeDb: { type: 'number', description: 'Bus volume in decibels' },
+              solo: { type: 'boolean', description: 'Whether the bus is soloed' },
+              mute: { type: 'boolean', description: 'Whether the bus is muted' },
+              bypassEffects: { type: 'boolean', description: 'Whether the bus bypasses its effects' },
+              send: { type: 'string', description: 'Name of the bus this bus sends to' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'add_audio_bus_effect',
+          description: 'Add an audio effect to a bus (identified by busName or busIndex) and persist the layout. effectType is one of: reverb, chorus, delay, compressor, limiter, distortion, eq, lowpass, highpass, bandpass, amplify, phaser. Returns the effect index and type.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              busName: { type: 'string', description: 'Name of the bus to add the effect to (alternative to busIndex)' },
+              busIndex: { type: 'number', description: 'Index of the bus to add the effect to (alternative to busName)' },
+              effectType: { type: 'string', description: 'Effect type: reverb, chorus, delay, compressor, limiter, distortion, eq, lowpass, highpass, bandpass, amplify, phaser' },
+              volumeDb: { type: 'number', description: 'Optional amplify volume in dB (amplify effect)' },
+              cutoffHz: { type: 'number', description: 'Optional filter cutoff frequency in Hz (filter effects)' },
+              wet: { type: 'number', description: 'Optional wet mix (reverb/chorus/delay)' },
+              dry: { type: 'number', description: 'Optional dry mix (reverb/chorus)' },
+            },
+            required: ['projectPath', 'effectType'],
+          },
+        },
+        {
+          name: 'get_audio_bus_layout',
+          description: 'Read-only listing of every audio bus in the project audio bus layout: index, name, volume_db, solo, mute, bypass_effects, send, and the list of effects (type per effect). Does not modify the layout.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'add_audio_player',
+          description: 'Add an AudioStreamPlayer (or AudioStreamPlayer2D if is2d, AudioStreamPlayer3D if is3d) under parentPath in a scene, configure stream/bus/volume/autoplay, and save the scene. Returns the created node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new audio player node' },
+              stream: { type: 'string', description: 'Optional res:// path to an audio stream resource to assign' },
+              bus: { type: 'string', description: 'Target audio bus name (default "Master")' },
+              volumeDb: { type: 'number', description: 'Volume in decibels' },
+              autoplay: { type: 'boolean', description: 'Whether the player auto-plays on ready' },
+              is3d: { type: 'boolean', description: 'Create an AudioStreamPlayer3D' },
+              is2d: { type: 'boolean', description: 'Create an AudioStreamPlayer2D' },
+            },
+            required: ['projectPath', 'scenePath', 'name'],
+          },
+        },
+        {
+          name: 'get_audio_info',
+          description: 'Read-only listing of every AudioStreamPlayer/2D/3D node in a scene, each with path, type, stream resource path, bus, volume_db, autoplay, and playing. Does not modify the scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        // ===== Shaders =====
+        {
+          name: 'create_shader',
+          description: 'Create a new .gdshader file in the project. If content is omitted, a minimal valid template for the given shaderType is written. Refuses to overwrite an existing file.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              path: { type: 'string', description: 'Project-relative path for the new .gdshader file' },
+              shaderType: { type: 'string', description: 'Shader type: canvas_item (default), spatial, particles, sky, or fog' },
+              content: { type: 'string', description: 'Optional full shader source; if omitted a minimal template is generated' },
+            },
+            required: ['projectPath', 'path'],
+          },
+        },
+        {
+          name: 'read_shader',
+          description: 'Return the text of a .gdshader file in the project. Read-only.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              path: { type: 'string', description: 'Project-relative path to the .gdshader file' },
+            },
+            required: ['projectPath', 'path'],
+          },
+        },
+        {
+          name: 'edit_shader',
+          description: 'Overwrite an existing .gdshader file with new content. The file must already exist.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              path: { type: 'string', description: 'Project-relative path to the .gdshader file' },
+              content: { type: 'string', description: 'New full shader source to write' },
+            },
+            required: ['projectPath', 'path', 'content'],
+          },
+        },
+        {
+          name: 'assign_shader_material',
+          description: 'Create a ShaderMaterial wrapping the shader at shaderPath and assign it to the node (CanvasItem.material for 2D/Control, GeometryInstance3D.material_override for 3D). Saves the scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node within the scene' },
+              shaderPath: { type: 'string', description: 'Project-relative path to the .gdshader to load' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'shaderPath'],
+          },
+        },
+        {
+          name: 'set_shader_param',
+          description: 'Set a shader uniform parameter on the ShaderMaterial assigned to a node, then save the scene. Fails if the node has no ShaderMaterial.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node within the scene' },
+              param: { type: 'string', description: 'Name of the shader uniform parameter to set' },
+              value: { description: 'Value to assign (coerced to the appropriate Godot type)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'param', 'value'],
+          },
+        },
+        {
+          name: 'get_shader_params',
+          description: 'List the uniforms (name, type, hint) of a shader. Provide shaderPath to read a shader directly, or scenePath+nodePath to read the shader on a node\'s ShaderMaterial. Read-only.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file (when reading a node\'s material)' },
+              nodePath: { type: 'string', description: 'Path to the node within the scene (when reading a node\'s material)' },
+              shaderPath: { type: 'string', description: 'Project-relative path to a .gdshader to inspect directly' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        // ===== Themes =====
+        {
+          name: 'create_theme',
+          description: 'Create a new empty Theme resource (.tres) at the given project-relative path. Refuses to overwrite an existing file.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              path: { type: 'string', description: 'Project-relative path for the new .tres theme file' },
+            },
+            required: ['projectPath', 'path'],
+          },
+        },
+        {
+          name: 'set_theme_color',
+          description: 'Set a named color on a Theme for a given theme type (e.g. Button, Label) and save the resource.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              themePath: { type: 'string', description: 'Project-relative path to the .tres theme file' },
+              name: { type: 'string', description: 'Color item name (e.g. font_color)' },
+              themeType: { type: 'string', description: 'Theme type the item belongs to (e.g. Button, Label)' },
+              color: { description: 'Color as a hex string (e.g. "#ff8800") or [r,g,b,a] array' },
+            },
+            required: ['projectPath', 'themePath', 'name', 'themeType', 'color'],
+          },
+        },
+        {
+          name: 'set_theme_constant',
+          description: 'Set a named integer constant on a Theme for a given theme type and save the resource.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              themePath: { type: 'string', description: 'Project-relative path to the .tres theme file' },
+              name: { type: 'string', description: 'Constant item name (e.g. h_separation)' },
+              themeType: { type: 'string', description: 'Theme type the item belongs to (e.g. HBoxContainer)' },
+              value: { type: 'number', description: 'Integer value' },
+            },
+            required: ['projectPath', 'themePath', 'name', 'themeType', 'value'],
+          },
+        },
+        {
+          name: 'set_theme_font_size',
+          description: 'Set a named font size on a Theme for a given theme type and save the resource.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              themePath: { type: 'string', description: 'Project-relative path to the .tres theme file' },
+              name: { type: 'string', description: 'Font size item name (e.g. font_size)' },
+              themeType: { type: 'string', description: 'Theme type the item belongs to (e.g. Label)' },
+              size: { type: 'number', description: 'Font size in pixels (integer)' },
+            },
+            required: ['projectPath', 'themePath', 'name', 'themeType', 'size'],
+          },
+        },
+        {
+          name: 'set_theme_stylebox',
+          description: 'Create a StyleBox (flat, empty, texture, or line), apply optional properties (e.g. bg_color, content_margin_*, corner_radius_*), set it on a Theme for a given theme type, and save.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              themePath: { type: 'string', description: 'Project-relative path to the .tres theme file' },
+              name: { type: 'string', description: 'StyleBox item name (e.g. normal, hover)' },
+              themeType: { type: 'string', description: 'Theme type the item belongs to (e.g. Button)' },
+              styleboxType: { type: 'string', description: 'StyleBox kind: flat (default), empty, texture, or line' },
+              properties: { type: 'object', description: 'Optional map of StyleBox properties to set (coerced to Godot types)' },
+            },
+            required: ['projectPath', 'themePath', 'name', 'themeType'],
+          },
+        },
+        {
+          name: 'get_theme_info',
+          description: 'List every color, constant, font size, and stylebox item defined in a Theme, grouped by theme type. Read-only.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              themePath: { type: 'string', description: 'Project-relative path to the .tres theme file' },
+            },
+            required: ['projectPath', 'themePath'],
+          },
+        },
+        // ===== Control layout =====
+        {
+          name: 'setup_control',
+          description: 'Configure a Control node: apply an anchor layout preset (e.g. full_rect, center, top_wide) and/or horizontal/vertical size flags, then save the scene. Fails if the node is not a Control.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the Control node within the scene' },
+              anchorPreset: { type: 'string', description: 'Layout preset name: top_left, top_right, bottom_left, bottom_right, center_left, center_top, center_right, center_bottom, center, left_wide, top_wide, right_wide, bottom_wide, vcenter_wide, hcenter_wide, full_rect' },
+              hSizeFlags: { type: 'number', description: 'Horizontal size flags bitmask (Control.SizeFlags)' },
+              vSizeFlags: { type: 'number', description: 'Vertical size flags bitmask (Control.SizeFlags)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        // ===== Particles =====
+        {
+          name: 'create_particles',
+          description: 'Create a GPUParticles2D (or GPUParticles3D if is3d) node under parentPath with a fresh ParticleProcessMaterial. Sets amount, lifetime, oneShot, and the emission shape, then saves the scene. Returns the created node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new particles node' },
+              is3d: { type: 'boolean', description: 'Create a GPUParticles3D (default false -> GPUParticles2D)' },
+              amount: { type: 'number', description: 'Number of particles (default 8)' },
+              lifetime: { type: 'number', description: 'Particle lifetime in seconds (default 1.0)' },
+              oneShot: { type: 'boolean', description: 'Emit a single burst instead of looping' },
+              emissionShape: { type: 'string', description: 'Emission shape: point (default), sphere, sphere_surface, box, or ring' },
+            },
+            required: ['projectPath', 'scenePath', 'name'],
+          },
+        },
+        {
+          name: 'set_particle_material',
+          description: 'Configure a GPUParticles2D/3D node and its ParticleProcessMaterial. Node fields: amount, lifetime, oneShot, emitting. Material fields: explosiveness, randomness, direction, spread, initialVelocityMin/Max, gravity, scaleMin/Max, color, angularVelocityMin/Max, orbitVelocityMin/Max, dampingMin/Max. Creates the process material if missing, then saves. Returns the changed keys.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the GPUParticles2D/3D node' },
+              amount: { type: 'number', description: 'Number of particles (node)' },
+              lifetime: { type: 'number', description: 'Particle lifetime in seconds (node)' },
+              oneShot: { type: 'boolean', description: 'One-shot emission (node)' },
+              emitting: { type: 'boolean', description: 'Whether the node is emitting (node)' },
+              explosiveness: { type: 'number', description: 'Explosiveness ratio 0..1 (material)' },
+              randomness: { type: 'number', description: 'Randomness ratio 0..1 (material)' },
+              direction: { type: 'array', description: 'Initial emission direction as [x,y] or [x,y,z] (material)', items: { type: 'number' } },
+              spread: { type: 'number', description: 'Spread angle in degrees (material)' },
+              initialVelocityMin: { type: 'number', description: 'Minimum initial velocity (material)' },
+              initialVelocityMax: { type: 'number', description: 'Maximum initial velocity (material)' },
+              gravity: { type: 'array', description: 'Gravity vector as [x,y] or [x,y,z] (material)', items: { type: 'number' } },
+              scaleMin: { type: 'number', description: 'Minimum scale (material)' },
+              scaleMax: { type: 'number', description: 'Maximum scale (material)' },
+              color: { description: 'Particle color as hex string or [r,g,b,a] array (material)' },
+              angularVelocityMin: { type: 'number', description: 'Minimum angular velocity (material)' },
+              angularVelocityMax: { type: 'number', description: 'Maximum angular velocity (material)' },
+              orbitVelocityMin: { type: 'number', description: 'Minimum orbit velocity (material)' },
+              orbitVelocityMax: { type: 'number', description: 'Maximum orbit velocity (material)' },
+              dampingMin: { type: 'number', description: 'Minimum damping (material)' },
+              dampingMax: { type: 'number', description: 'Maximum damping (material)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'set_particle_color_gradient',
+          description: 'Build a Gradient + GradientTexture1D from the given stops and assign it to the particle ParticleProcessMaterial color_ramp, then save the scene. Returns the number of stops applied.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the GPUParticles2D/3D node' },
+              stops: { type: 'array', description: 'Gradient stops, each { offset: 0..1, color: hex string or [r,g,b,a] }', items: { type: 'object' } },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'stops'],
+          },
+        },
+        {
+          name: 'apply_particle_preset',
+          description: 'Apply a tasteful bundle of node and ParticleProcessMaterial settings for a named preset, then save the scene. Returns the preset applied.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the GPUParticles2D/3D node' },
+              preset: { type: 'string', description: 'Preset name: fire, smoke, sparks, explosion, rain, snow, magic, or dust' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'preset'],
+          },
+        },
+        {
+          name: 'get_particle_info',
+          description: 'Read-only inspection of a GPUParticles2D/3D node: type, amount, lifetime, one_shot, emitting, and key ParticleProcessMaterial fields. Does not modify the scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the GPUParticles2D/3D node' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        // ===== Physics =====
+        {
+          name: 'setup_physics_body',
+          description: 'Configure an existing physics body or area node (CharacterBody2D/3D, RigidBody2D/3D, StaticBody2D/3D, Area2D/3D). Sets whichever provided properties exist on it (collisionLayer, collisionMask, motionMode, mass, gravityScale, linearDamp, angularDamp, freeze, freezeMode, contactMonitor, maxContactsReported), then saves. Fails if the node is not a physics body/area. Returns changed keys.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the physics body/area node' },
+              collisionLayer: { type: 'number', description: 'Collision layer bitmask' },
+              collisionMask: { type: 'number', description: 'Collision mask bitmask' },
+              motionMode: { type: 'string', description: 'CharacterBody motion mode: grounded or floating' },
+              mass: { type: 'number', description: 'RigidBody mass' },
+              gravityScale: { type: 'number', description: 'RigidBody gravity scale' },
+              linearDamp: { type: 'number', description: 'Linear damping' },
+              angularDamp: { type: 'number', description: 'Angular damping' },
+              freeze: { type: 'boolean', description: 'RigidBody freeze flag' },
+              freezeMode: { type: 'string', description: 'RigidBody freeze mode: static or kinematic' },
+              contactMonitor: { type: 'boolean', description: 'RigidBody contact monitoring' },
+              maxContactsReported: { type: 'number', description: 'Maximum contacts reported' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'setup_collision',
+          description: 'Add a CollisionShape2D (or CollisionShape3D if dimension is 3d) child to a body, holding the matching shape resource (rectangle/circle/capsule/segment/polygon for 2d; box/sphere/cylinder/capsule for 3d), set its size/radius/height/points, and oneWayCollision/disabled where applicable. Saves and returns the created shape node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the parent body node' },
+              shapeType: { type: 'string', description: 'rectangle, circle, capsule, segment, polygon (2d) or box, sphere, cylinder, capsule (3d)' },
+              dimension: { type: 'string', description: '2d (default) or 3d' },
+              size: { type: 'array', description: 'Size for rectangle/box as [x,y] or [x,y,z]', items: { type: 'number' } },
+              radius: { type: 'number', description: 'Radius for circle/sphere/capsule/cylinder' },
+              height: { type: 'number', description: 'Height for capsule/cylinder' },
+              points: { type: 'array', description: 'Points for polygon/segment as [[x,y], ...]', items: { type: 'array' } },
+              oneWayCollision: { type: 'boolean', description: 'One-way collision (2d CollisionShape2D)' },
+              disabled: { type: 'boolean', description: 'Disable the collision shape' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'shapeType'],
+          },
+        },
+        {
+          name: 'set_physics_layers',
+          description: 'Project-level: assign human-readable names to physics collision layers via layer_names/<2d|3d>_physics/layer_<n> in ProjectSettings, then save. Returns the names set.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              dimension: { type: 'string', description: '2d (default) or 3d' },
+              names: { type: 'object', description: 'Map of layer number (1..32) to name, e.g. { "1": "world", "2": "player" }' },
+            },
+            required: ['projectPath', 'names'],
+          },
+        },
+        {
+          name: 'get_physics_layers',
+          description: 'Read-only project-level listing of named 2D and 3D physics collision layers from ProjectSettings. Returns the non-empty layer names for both dimensions.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'add_raycast',
+          description: 'Add a RayCast2D (or RayCast3D if dimension is 3d) node under parentPath, set target_position, collision_mask, and enabled, then save the scene. Returns the created node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new raycast node' },
+              dimension: { type: 'string', description: '2d (default) or 3d' },
+              targetPosition: { type: 'array', description: 'Target position as [x,y] (default [0,50]) or [x,y,z]', items: { type: 'number' } },
+              collisionMask: { type: 'number', description: 'Collision mask bitmask' },
+              enabled: { type: 'boolean', description: 'Whether the raycast is enabled (default true)' },
+            },
+            required: ['projectPath', 'scenePath', 'name'],
+          },
+        },
+        {
+          name: 'get_collision_info',
+          description: 'Read-only scene op returning a node\'s collision_layer and collision_mask (if present) plus the decoded active layer numbers. Does not modify the scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node to inspect' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        // ===== Navigation =====
+        {
+          name: 'setup_navigation_region',
+          description: 'Add a NavigationRegion2D (with a fresh NavigationPolygon) or NavigationRegion3D (with a fresh NavigationMesh) under parentPath in a scene, optionally set navigationLayers, and save. Returns the created node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new navigation region node' },
+              dimension: { type: 'string', description: '2d (default) or 3d' },
+              navigationLayers: { type: 'number', description: 'Optional navigation_layers bitmask' },
+            },
+            required: ['projectPath', 'scenePath', 'name'],
+          },
+        },
+        {
+          name: 'bake_navigation_mesh',
+          description: 'Best-effort bake of a NavigationRegion2D/3D node. For a NavigationRegion2D with outlineVertices, builds a NavigationPolygon outline and bakes it. Headless 3D baking needs source geometry and reports baked:false gracefully. Saves the scene if the polygon was modified.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the NavigationRegion2D/3D node within the scene' },
+              outlineVertices: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Optional outline polygon vertices as [[x,y], ...] for a 2D region' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'setup_navigation_agent',
+          description: 'Add a NavigationAgent2D or NavigationAgent3D under parentPath in a scene, set the provided agent properties, and save. Returns the created node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new navigation agent node' },
+              dimension: { type: 'string', description: '2d (default) or 3d' },
+              radius: { type: 'number', description: 'Agent radius' },
+              maxSpeed: { type: 'number', description: 'Maximum movement speed' },
+              pathDesiredDistance: { type: 'number', description: 'Distance to a path point considered reached' },
+              targetDesiredDistance: { type: 'number', description: 'Distance to the target considered reached' },
+              avoidanceEnabled: { type: 'boolean', description: 'Enable avoidance' },
+              navigationLayers: { type: 'number', description: 'Optional navigation_layers bitmask' },
+            },
+            required: ['projectPath', 'scenePath', 'name'],
+          },
+        },
+        {
+          name: 'set_navigation_layers',
+          description: 'Set the navigation_layers bitmask on a NavigationRegion or NavigationAgent node, then save the scene. Fails if the node has no navigation_layers property.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the navigation node within the scene' },
+              navigationLayers: { type: 'number', description: 'navigation_layers bitmask' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'navigationLayers'],
+          },
+        },
+        {
+          name: 'get_navigation_info',
+          description: 'Read-only scene op that recursively counts NavigationRegion2D/3D and NavigationAgent2D/3D nodes (returning their paths) and lists the project\'s non-empty 2D/3D navigation layer names. Does not modify the scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        // ===== 3D =====
+        {
+          name: 'add_mesh_instance',
+          description: 'Add a MeshInstance3D with a primitive mesh (box, sphere, cylinder, capsule, plane, prism, or torus) under parentPath in a scene, set size/radius/height where supported, and save. Returns the created node path and mesh type.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new MeshInstance3D node' },
+              meshType: { type: 'string', description: 'box (default), sphere, cylinder, capsule, plane, prism, or torus' },
+              size: { type: 'array', items: { type: 'number' }, description: 'Optional size as [x,y] or [x,y,z] for meshes that support it' },
+              radius: { type: 'number', description: 'Radius for sphere/cylinder/capsule/torus' },
+              height: { type: 'number', description: 'Height for cylinder/capsule' },
+            },
+            required: ['projectPath', 'scenePath', 'name'],
+          },
+        },
+        {
+          name: 'setup_lighting',
+          description: 'Add a DirectionalLight3D, OmniLight3D, or SpotLight3D under parentPath in a scene. An optional preset (sun, indoor, dramatic) applies tasteful energy/color/rotation; otherwise the provided energy/color are used. Saves the scene.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Optional name for the new light node' },
+              lightType: { type: 'string', description: 'directional (default), omni, or spot' },
+              preset: { type: 'string', description: 'Optional preset: sun, indoor, or dramatic' },
+              energy: { type: 'number', description: 'Light energy' },
+              color: { description: 'Light color as a hex string or [r,g,b(,a)] array' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'set_material_3d',
+          description: 'Create and assign a StandardMaterial3D surface override on a MeshInstance3D, setting albedo color, metallic, and roughness, then save the scene. Fails if the node is not a MeshInstance3D.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the MeshInstance3D node within the scene' },
+              surfaceIndex: { type: 'number', description: 'Surface index (default 0)' },
+              albedoColor: { description: 'Albedo color as a hex string or [r,g,b(,a)] array' },
+              metallic: { type: 'number', description: 'Metallic value 0..1' },
+              roughness: { type: 'number', description: 'Roughness value 0..1' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'setup_environment',
+          description: 'Add a WorldEnvironment node with a new Environment under parentPath in a scene, set its background mode (sky, color, or clear_color), optional clearColor, and enable features (ssao, glow, fog), then save. Returns the created node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new WorldEnvironment node (default "WorldEnvironment")' },
+              backgroundMode: { type: 'string', description: 'sky (default), color, or clear_color' },
+              features: { type: 'array', items: { type: 'string' }, description: 'Optional features to enable, e.g. ssao, glow, fog' },
+              clearColor: { description: 'Optional background color as a hex string or [r,g,b(,a)] array' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'setup_camera_3d',
+          description: 'Add a Camera3D under parentPath in a scene, set projection (perspective or orthogonal), fov, position, and current, then save. Returns the created node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new Camera3D node (default "Camera3D")' },
+              projection: { type: 'string', description: 'perspective (default) or orthogonal' },
+              fov: { type: 'number', description: 'Field of view (perspective) in degrees' },
+              position: { type: 'array', items: { type: 'number' }, description: 'Optional position as [x,y,z]' },
+              current: { type: 'boolean', description: 'Make this the current camera' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'add_gridmap',
+          description: 'Add a GridMap node under parentPath in a scene, optionally assign a MeshLibrary resource and set cell_size, then save. Returns the created node path and whether a MeshLibrary was assigned.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              parentPath: { type: 'string', description: 'Path to the parent node (default: scene root)' },
+              name: { type: 'string', description: 'Name for the new GridMap node' },
+              meshLibrary: { type: 'string', description: 'Optional res:// path to a MeshLibrary resource' },
+              cellSize: { type: 'array', items: { type: 'number' }, description: 'Optional cell size as [x,y,z]' },
+            },
+            required: ['projectPath', 'scenePath', 'name'],
+          },
+        },
+        {
+          name: 'update_property',
+          description: 'Convenience alias of set_node_property: set a single property on a node in a scene and save. Returns the coerced value that was written.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node (relative to the scene root)' },
+              property: { type: 'string', description: 'Name of the property to set' },
+              value: { description: 'New value for the property (coerced to the property type)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'property', 'value'],
+          },
+        },
+        {
+          name: 'validate_script',
+          description: 'Alias of check_script: parse-check a GDScript file headlessly and report whether it is valid along with any compiler output.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scriptPath: { type: 'string', description: 'Project-relative path to the .gd script to validate' },
+            },
+            required: ['projectPath', 'scriptPath'],
+          },
+        },
+        {
+          name: 'add_scene_instance',
+          description: 'Alias of instance_scene: instance one scene as a child node under parentPath inside another scene, optionally with a custom name, then save.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file being edited' },
+              parentPath: { type: 'string', description: 'Path to the parent node the instance is added under (default: scene root)' },
+              instanceScenePath: { type: 'string', description: 'Path to the scene to instance' },
+              name: { type: 'string', description: 'Optional name for the instanced node' },
+            },
+            required: ['projectPath', 'scenePath', 'instanceScenePath'],
+          },
+        },
+        {
+          name: 'move_node',
+          description: 'Reparent a node to a new parent within the scene, preserving its global transform when keepGlobalTransform is true (for Node2D/Node3D/Control). Saves and returns the new node path.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node to move' },
+              newParent: { type: 'string', description: 'Path to the new parent node' },
+              keepGlobalTransform: { type: 'boolean', description: 'Preserve the global transform across the move (default: true)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'newParent'],
+          },
+        },
+        {
+          name: 'add_resource',
+          description: 'Instantiate a named Resource subclass (e.g. RectangleShape2D, CircleShape2D, GradientTexture1D), apply optional properties, and assign it to a node property, then save. Fails if the class is not a Resource or the property does not exist.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node receiving the resource' },
+              property: { type: 'string', description: 'Name of the node property to assign the resource to' },
+              resourceType: { type: 'string', description: 'Resource subclass name to instantiate (e.g. RectangleShape2D)' },
+              properties: { type: 'object', description: 'Optional properties to apply to the new resource' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'property', 'resourceType'],
+          },
+        },
+        {
+          name: 'set_anchor_preset',
+          description: 'Apply a layout preset to a Control node\'s anchors only (not offsets), then save. preset is one of top_left ... full_rect. Fails if the node is not a Control.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the Control node' },
+              preset: { type: 'string', description: 'Layout preset name: top_left, top_right, bottom_left, bottom_right, center_left, center_top, center_right, center_bottom, center, left_wide, top_wide, right_wide, bottom_wide, vcenter_wide, hcenter_wide, full_rect' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'preset'],
+          },
+        },
+        {
+          name: 'set_node_groups',
+          description: 'Replace a node\'s group membership with the provided list (persistent so the groups serialize into the scene), then save. Returns the resulting groups.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node' },
+              groups: { type: 'array', items: { type: 'string' }, description: 'The full set of groups the node should belong to' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'groups'],
+          },
+        },
+        {
+          name: 'batch_add_nodes',
+          description: 'Add multiple nodes to a scene in a single load/save pass. Each spec has parent (default root), type, name, and optional properties. Returns per-node results and counts.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodes: {
+                type: 'array',
+                description: 'Node specs to create',
+                items: {
+                  type: 'object',
+                  properties: {
+                    parent: { type: 'string', description: 'Parent node path (default: scene root)' },
+                    type: { type: 'string', description: 'Class or registered script name to instantiate' },
+                    name: { type: 'string', description: 'Name for the new node' },
+                    properties: { type: 'object', description: 'Optional properties to apply' },
+                  },
+                  required: ['type'],
+                },
+              },
+            },
+            required: ['projectPath', 'scenePath', 'nodes'],
+          },
+        },
+        {
+          name: 'batch_set_property',
+          description: 'Set one property on many nodes in a single load/save pass. Targets either an explicit nodePaths list or every node matching nodeType (is_class). Returns affected count and node list.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              property: { type: 'string', description: 'Name of the property to set' },
+              value: { description: 'New value (coerced to the property type)' },
+              nodePaths: { type: 'array', items: { type: 'string' }, description: 'Explicit node paths to update' },
+              nodeType: { type: 'string', description: 'Class filter: update every node that is_class(nodeType)' },
+            },
+            required: ['projectPath', 'scenePath', 'property', 'value'],
+          },
+        },
+        {
+          name: 'cross_scene_set_property',
+          description: 'Across multiple scenes: set a property on every node matching nodeType (is_class) and save each scene (unless dryRun). Returns per-scene affected counts, totals, and the dry_run flag.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePaths: { type: 'array', items: { type: 'string' }, description: 'Project-relative .tscn paths to process' },
+              nodeType: { type: 'string', description: 'Class filter for nodes to update' },
+              property: { type: 'string', description: 'Name of the property to set' },
+              value: { description: 'New value (coerced to the property type)' },
+              dryRun: { type: 'boolean', description: 'If true, compute affected nodes without saving (default: false)' },
+            },
+            required: ['projectPath', 'scenePaths', 'nodeType', 'property', 'value'],
+          },
+        },
+        {
+          name: 'edit_script',
+          description: 'Overwrite an existing .gd script file with new content. The file must already exist.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scriptPath: { type: 'string', description: 'Project-relative path to the existing .gd file' },
+              content: { type: 'string', description: 'New full content for the script' },
+            },
+            required: ['projectPath', 'scriptPath', 'content'],
+          },
+        },
+        {
+          name: 'delete_scene',
+          description: 'Delete a .tscn scene file from the project. Only .tscn files inside the project are permitted.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Project-relative path to the .tscn file to delete' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'set_input_action',
+          description: 'Define or replace an input action in the InputMap and persist it to project settings. Each event descriptor is like {type:"key", keycode:"Space"}, {type:"mouse_button", button_index:1}, {type:"joypad_button", button_index:0}, or {type:"joypad_motion", axis:0, axis_value:1.0}. Returns the action and event count.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              action: { type: 'string', description: 'Name of the input action' },
+              events: { type: 'array', description: 'Event descriptors that define the action', items: { type: 'object' } },
+              deadzone: { type: 'number', description: 'Optional deadzone (default: 0.5)' },
+            },
+            required: ['projectPath', 'action', 'events'],
+          },
+        },
+        {
+          name: 'uid_to_project_path',
+          description: 'Resolve a uid:// identifier to its res:// resource path. Fails if the UID is unknown.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              uid: { type: 'string', description: 'A uid:// identifier string' },
+            },
+            required: ['projectPath', 'uid'],
+          },
+        },
+        {
+          name: 'project_path_to_uid',
+          description: 'Resolve a res:// (or project-relative) resource path to its uid:// identifier. Fails if no UID is assigned.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              path: { type: 'string', description: 'A res:// or project-relative resource path' },
+            },
+            required: ['projectPath', 'path'],
+          },
+        },
+        {
+          name: 'get_android_preset_info',
+          description: 'Return the configuration of the Android export preset from export_presets.cfg (package name, version, keystores, SDK levels, and full options). Defaults to the first Android preset, or pass presetName.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              presetName: { type: 'string', description: 'Specific export preset name (optional; defaults to the first platform="Android" preset)' },
+            },
+            required: ['projectPath'],
+          },
+        },
       ],
     }));
 
@@ -1862,6 +3379,202 @@ class GodotServer {
           return await this.handleReorderNode(request.params.arguments);
         case 'export_project':
           return await this.handleExportProject(request.params.arguments);
+        case 'get_filesystem_tree':
+          return await this.handleGetFilesystemTree(request.params.arguments);
+        case 'search_files':
+          return await this.handleSearchFiles(request.params.arguments);
+        case 'search_in_files':
+          return await this.handleSearchInFiles(request.params.arguments);
+        case 'get_project_statistics':
+          return await this.handleGetProjectStatistics(request.params.arguments);
+        case 'get_scene_file_content':
+          return await this.handleGetSceneFileContent(request.params.arguments);
+        case 'find_script_references':
+          return await this.handleFindScriptReferences(request.params.arguments);
+        case 'find_node_references':
+          return await this.handleFindNodeReferences(request.params.arguments);
+        case 'find_unused_resources':
+          return await this.handleFindUnusedResources(request.params.arguments);
+        case 'detect_circular_dependencies':
+          return await this.handleDetectCircularDependencies(request.params.arguments);
+        case 'find_signal_connections':
+          return await this.handleFindSignalConnections(request.params.arguments);
+        case 'list_export_presets':
+          return await this.handleListExportPresets(request.params.arguments);
+        case 'get_export_info':
+          return await this.handleGetExportInfo(request.params.arguments);
+        case 'read_resource':
+          return await this.handleReadResource(request.params.arguments);
+        case 'analyze_scene_complexity':
+          return await this.handleAnalyzeSceneComplexity(request.params.arguments);
+        case 'analyze_signal_flow':
+          return await this.handleAnalyzeSignalFlow(request.params.arguments);
+        case 'get_project_settings':
+          return await this.handleGetProjectSettings(request.params.arguments);
+        case 'get_scene_exports':
+          return await this.handleGetSceneExports(request.params.arguments);
+        case 'get_node_groups':
+          return await this.handleGetNodeGroups(request.params.arguments);
+        case 'find_nodes_by_type':
+          return await this.handleFindNodesByType(request.params.arguments);
+        case 'find_nodes_in_group':
+          return await this.handleFindNodesInGroup(request.params.arguments);
+        case 'get_input_actions':
+          return await this.handleGetInputActions(request.params.arguments);
+        case 'tilemap_set_cell':
+          return await this.handleTilemapSetCell(request.params.arguments);
+        case 'tilemap_fill_rect':
+          return await this.handleTilemapFillRect(request.params.arguments);
+        case 'tilemap_get_cell':
+          return await this.handleTilemapGetCell(request.params.arguments);
+        case 'tilemap_clear':
+          return await this.handleTilemapClear(request.params.arguments);
+        case 'tilemap_get_info':
+          return await this.handleTilemapGetInfo(request.params.arguments);
+        case 'tilemap_get_used_cells':
+          return await this.handleTilemapGetUsedCells(request.params.arguments);
+        case 'list_animations':
+          return await this.handleListAnimations(request.params.arguments);
+        case 'add_animation_track':
+          return await this.handleAddAnimationTrack(request.params.arguments);
+        case 'set_animation_keyframe':
+          return await this.handleSetAnimationKeyframe(request.params.arguments);
+        case 'get_animation_info':
+          return await this.handleGetAnimationInfo(request.params.arguments);
+        case 'remove_animation':
+          return await this.handleRemoveAnimation(request.params.arguments);
+        case 'create_animation_tree':
+          return await this.handleCreateAnimationTree(request.params.arguments);
+        case 'get_animation_tree_structure':
+          return await this.handleGetAnimationTreeStructure(request.params.arguments);
+        case 'add_state_machine_state':
+          return await this.handleAddStateMachineState(request.params.arguments);
+        case 'remove_state_machine_state':
+          return await this.handleRemoveStateMachineState(request.params.arguments);
+        case 'add_state_machine_transition':
+          return await this.handleAddStateMachineTransition(request.params.arguments);
+        case 'remove_state_machine_transition':
+          return await this.handleRemoveStateMachineTransition(request.params.arguments);
+        case 'set_blend_tree_node':
+          return await this.handleSetBlendTreeNode(request.params.arguments);
+        case 'set_tree_parameter':
+          return await this.handleSetTreeParameter(request.params.arguments);
+        case 'add_audio_bus':
+          return await this.handleAddAudioBus(request.params.arguments);
+        case 'set_audio_bus':
+          return await this.handleSetAudioBus(request.params.arguments);
+        case 'add_audio_bus_effect':
+          return await this.handleAddAudioBusEffect(request.params.arguments);
+        case 'get_audio_bus_layout':
+          return await this.handleGetAudioBusLayout(request.params.arguments);
+        case 'add_audio_player':
+          return await this.handleAddAudioPlayer(request.params.arguments);
+        case 'get_audio_info':
+          return await this.handleGetAudioInfo(request.params.arguments);
+        case 'create_shader':
+          return await this.handleCreateShader(request.params.arguments);
+        case 'read_shader':
+          return await this.handleReadShader(request.params.arguments);
+        case 'edit_shader':
+          return await this.handleEditShader(request.params.arguments);
+        case 'assign_shader_material':
+          return await this.handleAssignShaderMaterial(request.params.arguments);
+        case 'set_shader_param':
+          return await this.handleSetShaderParam(request.params.arguments);
+        case 'get_shader_params':
+          return await this.handleGetShaderParams(request.params.arguments);
+        case 'create_theme':
+          return await this.handleCreateTheme(request.params.arguments);
+        case 'set_theme_color':
+          return await this.handleSetThemeColor(request.params.arguments);
+        case 'set_theme_constant':
+          return await this.handleSetThemeConstant(request.params.arguments);
+        case 'set_theme_font_size':
+          return await this.handleSetThemeFontSize(request.params.arguments);
+        case 'set_theme_stylebox':
+          return await this.handleSetThemeStylebox(request.params.arguments);
+        case 'get_theme_info':
+          return await this.handleGetThemeInfo(request.params.arguments);
+        case 'setup_control':
+          return await this.handleSetupControl(request.params.arguments);
+        case 'create_particles':
+          return await this.handleCreateParticles(request.params.arguments);
+        case 'set_particle_material':
+          return await this.handleSetParticleMaterial(request.params.arguments);
+        case 'set_particle_color_gradient':
+          return await this.handleSetParticleColorGradient(request.params.arguments);
+        case 'apply_particle_preset':
+          return await this.handleApplyParticlePreset(request.params.arguments);
+        case 'get_particle_info':
+          return await this.handleGetParticleInfo(request.params.arguments);
+        case 'setup_physics_body':
+          return await this.handleSetupPhysicsBody(request.params.arguments);
+        case 'setup_collision':
+          return await this.handleSetupCollision(request.params.arguments);
+        case 'set_physics_layers':
+          return await this.handleSetPhysicsLayers(request.params.arguments);
+        case 'get_physics_layers':
+          return await this.handleGetPhysicsLayers(request.params.arguments);
+        case 'add_raycast':
+          return await this.handleAddRaycast(request.params.arguments);
+        case 'get_collision_info':
+          return await this.handleGetCollisionInfo(request.params.arguments);
+        // --- Navigation ---
+        case 'setup_navigation_region':
+          return await this.handleSetupNavigationRegion(request.params.arguments);
+        case 'bake_navigation_mesh':
+          return await this.handleBakeNavigationMesh(request.params.arguments);
+        case 'setup_navigation_agent':
+          return await this.handleSetupNavigationAgent(request.params.arguments);
+        case 'set_navigation_layers':
+          return await this.handleSetNavigationLayers(request.params.arguments);
+        case 'get_navigation_info':
+          return await this.handleGetNavigationInfo(request.params.arguments);
+        // --- 3D ---
+        case 'add_mesh_instance':
+          return await this.handleAddMeshInstance(request.params.arguments);
+        case 'setup_lighting':
+          return await this.handleSetupLighting(request.params.arguments);
+        case 'set_material_3d':
+          return await this.handleSetMaterial3d(request.params.arguments);
+        case 'setup_environment':
+          return await this.handleSetupEnvironment(request.params.arguments);
+        case 'setup_camera_3d':
+          return await this.handleSetupCamera3d(request.params.arguments);
+        case 'add_gridmap':
+          return await this.handleAddGridmap(request.params.arguments);
+        case 'update_property':
+          return await this.handleUpdateProperty(request.params.arguments);
+        case 'validate_script':
+          return await this.handleValidateScript(request.params.arguments);
+        case 'add_scene_instance':
+          return await this.handleAddSceneInstance(request.params.arguments);
+        case 'move_node':
+          return await this.handleMoveNode(request.params.arguments);
+        case 'add_resource':
+          return await this.handleAddResource(request.params.arguments);
+        case 'set_anchor_preset':
+          return await this.handleSetAnchorPreset(request.params.arguments);
+        case 'set_node_groups':
+          return await this.handleSetNodeGroups(request.params.arguments);
+        case 'batch_add_nodes':
+          return await this.handleBatchAddNodes(request.params.arguments);
+        case 'batch_set_property':
+          return await this.handleBatchSetProperty(request.params.arguments);
+        case 'cross_scene_set_property':
+          return await this.handleCrossSceneSetProperty(request.params.arguments);
+        case 'edit_script':
+          return await this.handleEditScript(request.params.arguments);
+        case 'delete_scene':
+          return await this.handleDeleteScene(request.params.arguments);
+        case 'set_input_action':
+          return await this.handleSetInputAction(request.params.arguments);
+        case 'uid_to_project_path':
+          return await this.handleUidToProjectPath(request.params.arguments);
+        case 'project_path_to_uid':
+          return await this.handleProjectPathToUid(request.params.arguments);
+        case 'get_android_preset_info':
+          return await this.handleGetAndroidPresetInfo(request.params.arguments);
         default:
           throw new McpError(
             ErrorCode.MethodNotFound,
@@ -3798,6 +5511,1482 @@ class GodotServer {
         'Install the matching export templates for this Godot version',
       ]);
     }
+  }
+
+  // =========================================================================
+  // Inspection / analysis handlers (read-only, filesystem-based)
+  // =========================================================================
+
+  /** Recursively collect project-relative file paths, skipping hidden/.import dirs. */
+  private listProjectFiles(projectPath: string, accept?: (rel: string) => boolean): string[] {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      let entries;
+      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else {
+          const rel = full.substring(projectPath.length).replace(/^[/\\]/, '').replace(/\\/g, '/');
+          if (!accept || accept(rel)) out.push(rel);
+        }
+      }
+    };
+    if (existsSync(projectPath)) walk(projectPath);
+    return out;
+  }
+
+  /** Read a project file as UTF-8 text, skipping files larger than maxBytes. */
+  private safeReadText(full: string, maxBytes = 4 * 1024 * 1024): string | null {
+    try {
+      if (statSync(full).size > maxBytes) return null;
+      return readFileSync(full, 'utf-8');
+    } catch {
+      return null;
+    }
+  }
+
+  /** Minimal INI/cfg parser for Godot .cfg files (export_presets.cfg, etc.). */
+  private parseGodotCfg(text: string): Array<{ section: string; values: Record<string, string> }> {
+    const sections: Array<{ section: string; values: Record<string, string> }> = [];
+    let current: { section: string; values: Record<string, string> } | null = null;
+    for (const raw of text.split('\n')) {
+      const line = raw.trim();
+      if (!line || line.startsWith(';')) continue;
+      const sec = line.match(/^\[(.+)\]$/);
+      if (sec) {
+        current = { section: sec[1], values: {} };
+        sections.push(current);
+        continue;
+      }
+      const eq = line.indexOf('=');
+      if (eq !== -1 && current) {
+        const key = line.slice(0, eq).trim();
+        let val = line.slice(eq + 1).trim();
+        if (val.startsWith('"') && val.endsWith('"') && val.length >= 2) val = val.slice(1, -1);
+        current.values[key] = val;
+      }
+    }
+    return sections;
+  }
+
+  private async handleGetFilesystemTree(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath, args.subPath);
+    if (err) return err;
+    const base = args.subPath ? join(args.projectPath, args.subPath) : args.projectPath;
+    if (!existsSync(base)) return this.createErrorResponse(`Path not found: ${args.subPath || '.'}`, []);
+    const build = (dir: string): any => {
+      const node: any = { name: basename(dir), type: 'directory', children: [] };
+      let entries;
+      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return node; }
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (entry.name.startsWith('.')) continue;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          node.children.push(build(full));
+        } else {
+          let size = 0;
+          try { size = statSync(full).size; } catch { /* ignore */ }
+          const dot = entry.name.lastIndexOf('.');
+          node.children.push({ name: entry.name, type: 'file', ext: dot > 0 ? entry.name.slice(dot + 1) : '', size });
+        }
+      }
+      return node;
+    };
+    return this.structuredResponse(`Filesystem tree for '${args.subPath || '.'}':`, build(base));
+  }
+
+  private async handleSearchFiles(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.pattern) return this.missing('pattern');
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const ext = args.extension ? String(args.extension).replace(/^\./, '').toLowerCase() : null;
+    const limit = typeof args.maxResults === 'number' ? args.maxResults : 500;
+    const pat = String(args.pattern);
+    const isGlob = pat.includes('*') || pat.includes('?');
+    let rx: RegExp | null = null;
+    if (isGlob) {
+      const escaped = pat.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+      // Anchor so "*.gd" matches "player.gd" but not "player.gd.uid".
+      rx = new RegExp('^' + escaped + '$', 'i');
+    }
+    const needle = pat.toLowerCase();
+    const matches = this.listProjectFiles(args.projectPath, (rel) => {
+      if (ext && !rel.toLowerCase().endsWith('.' + ext)) return false;
+      return rx ? rx.test(rel) : rel.toLowerCase().includes(needle);
+    });
+    const truncated = matches.length > limit;
+    return this.structuredResponse(
+      `Found ${matches.length} file(s) matching '${pat}'${truncated ? ` (showing ${limit})` : ''}:`,
+      { count: matches.length, files: matches.slice(0, limit) }
+    );
+  }
+
+  private async handleSearchInFiles(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.query) return this.missing('query');
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const exts: string[] = (Array.isArray(args.extensions) && args.extensions.length
+      ? args.extensions
+      : ['gd', 'tscn', 'tres', 'cfg', 'godot', 'json', 'md', 'txt', 'cs', 'gdshader'])
+      .map((e: string) => String(e).replace(/^\./, '').toLowerCase());
+    const limit = typeof args.maxResults === 'number' ? args.maxResults : 200;
+    const caseSensitive = !!args.caseSensitive;
+    const query = caseSensitive ? String(args.query) : String(args.query).toLowerCase();
+    const files = this.listProjectFiles(args.projectPath, (rel) => exts.some((e) => rel.toLowerCase().endsWith('.' + e)));
+    const results: Array<{ file: string; line: number; text: string }> = [];
+    for (const rel of files) {
+      if (results.length >= limit) break;
+      const text = this.safeReadText(join(args.projectPath, rel));
+      if (text === null) continue;
+      const lines = text.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const hay = caseSensitive ? lines[i] : lines[i].toLowerCase();
+        if (hay.includes(query)) {
+          results.push({ file: rel, line: i + 1, text: lines[i].trim().slice(0, 300) });
+          if (results.length >= limit) break;
+        }
+      }
+    }
+    return this.structuredResponse(`Found ${results.length} match(es) for '${args.query}':`, { count: results.length, matches: results });
+  }
+
+  private async handleGetProjectStatistics(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const files = this.listProjectFiles(args.projectPath);
+    const byExt: Record<string, number> = {};
+    let scriptLines = 0;
+    let nodeInstances = 0;
+    let sceneCount = 0;
+    let scriptCount = 0;
+    let resourceCount = 0;
+    for (const rel of files) {
+      const dot = rel.lastIndexOf('.');
+      const ext = dot > 0 ? rel.slice(dot + 1).toLowerCase() : '(none)';
+      byExt[ext] = (byExt[ext] || 0) + 1;
+      if (ext === 'gd') {
+        scriptCount++;
+        const text = this.safeReadText(join(args.projectPath, rel));
+        if (text !== null) scriptLines += text.split('\n').length;
+      } else if (ext === 'tscn') {
+        sceneCount++;
+        const text = this.safeReadText(join(args.projectPath, rel));
+        if (text !== null) nodeInstances += (text.match(/^\[node /gm) || []).length;
+      } else if (ext === 'tres' || ext === 'res') {
+        resourceCount++;
+      }
+    }
+    let autoloads = 0;
+    const projText = this.safeReadText(join(args.projectPath, 'project.godot'));
+    if (projText) {
+      const auto = projText.match(/^\[autoload\]([\s\S]*?)(\n\[|$)/m);
+      if (auto) autoloads = (auto[1].match(/^[A-Za-z_]\w*=/gm) || []).length;
+    }
+    return this.structuredResponse('Project statistics:', {
+      total_files: files.length,
+      scene_count: sceneCount,
+      script_count: scriptCount,
+      resource_count: resourceCount,
+      total_script_lines: scriptLines,
+      total_node_instances: nodeInstances,
+      autoloads,
+      file_counts_by_extension: byExt,
+    });
+  }
+
+  private async handleGetSceneFileContent(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    const err = this.checkProject(args.projectPath, args.scenePath);
+    if (err) return err;
+    const full = join(args.projectPath, args.scenePath.replace(/^res:\/\//, ''));
+    if (!existsSync(full)) return this.createErrorResponse(`File not found: ${args.scenePath}`, []);
+    const text = this.safeReadText(full);
+    if (text === null) return this.createErrorResponse(`File too large or unreadable: ${args.scenePath}`, []);
+    return { content: [{ type: 'text', text }] };
+  }
+
+  /** Scan project text files for lines matching any of the given needles. */
+  private scanReferences(projectPath: string, needles: string[], exts: string[], limit = 500): Array<{ file: string; line: number; text: string }> {
+    const files = this.listProjectFiles(projectPath, (rel) => exts.some((e) => rel.toLowerCase().endsWith('.' + e)));
+    const out: Array<{ file: string; line: number; text: string }> = [];
+    for (const rel of files) {
+      if (out.length >= limit) break;
+      const text = this.safeReadText(join(projectPath, rel));
+      if (text === null) continue;
+      const lines = text.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (needles.some((n) => n && lines[i].includes(n))) {
+          out.push({ file: rel, line: i + 1, text: lines[i].trim().slice(0, 300) });
+          if (out.length >= limit) break;
+        }
+      }
+    }
+    return out;
+  }
+
+  private async handleFindScriptReferences(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scriptPath) return this.missing('scriptPath');
+    const err = this.checkProject(args.projectPath, args.scriptPath);
+    if (err) return err;
+    const rel = String(args.scriptPath).replace(/^res:\/\//, '');
+    const needles = [`res://${rel}`, rel, basename(rel)];
+    const refs = this.scanReferences(args.projectPath, needles, ['tscn', 'tres', 'gd', 'godot']);
+    // Exclude self-definition lines (the script file referencing its own name).
+    const filtered = refs.filter((r) => r.file !== rel);
+    return this.structuredResponse(`Found ${filtered.length} reference(s) to '${args.scriptPath}':`, {
+      script: rel,
+      reference_count: filtered.length,
+      references: filtered,
+    });
+  }
+
+  private async handleFindNodeReferences(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.nodeName) return this.missing('nodeName');
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const name = String(args.nodeName);
+    const needles = [`get_node("${name}"`, `get_node('${name}'`, `$${name}`, `%${name}`, `"${name}"`, `'${name}'`];
+    const refs = this.scanReferences(args.projectPath, needles, ['gd', 'cs']);
+    return this.structuredResponse(`Found ${refs.length} reference(s) to node '${name}':`, {
+      node: name,
+      reference_count: refs.length,
+      references: refs,
+    });
+  }
+
+  private async handleFindUnusedResources(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const assetExts = ['png', 'jpg', 'jpeg', 'svg', 'webp', 'bmp', 'ogg', 'wav', 'mp3', 'tres', 'res', 'gltf', 'glb', 'obj', 'fbx', 'ttf', 'otf', 'theme', 'material', 'gdshader', 'shader'];
+    const all = this.listProjectFiles(args.projectPath);
+    const candidates = all.filter((rel) => {
+      const dot = rel.lastIndexOf('.');
+      return dot > 0 && assetExts.includes(rel.slice(dot + 1).toLowerCase());
+    });
+    // Build one big haystack from referencing files.
+    const refFiles = all.filter((rel) => /\.(tscn|tres|godot|gd|cs|cfg)$/i.test(rel));
+    let haystack = '';
+    for (const rel of refFiles) {
+      const text = this.safeReadText(join(args.projectPath, rel));
+      if (text !== null) haystack += text + '\n';
+    }
+    const unused = candidates.filter((rel) => {
+      const resPath = `res://${rel}`;
+      const base = basename(rel);
+      // Considered used if referenced by full res:// path or by basename (conservative).
+      return !haystack.includes(resPath) && !haystack.includes(base);
+    });
+    return this.structuredResponse(`Found ${unused.length} potentially-unused resource(s) of ${candidates.length} scanned:`, {
+      scanned_count: candidates.length,
+      unused_count: unused.length,
+      unused_resources: unused,
+      note: 'Heuristic: dynamically-constructed paths (e.g. load(base_dir + name)) may cause false positives.',
+    });
+  }
+
+  private async handleDetectCircularDependencies(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const scenes = this.listProjectFiles(args.projectPath, (rel) => rel.toLowerCase().endsWith('.tscn'));
+    // Build scene -> [scene deps] graph from ext_resource PackedScene paths.
+    const graph: Record<string, string[]> = {};
+    for (const rel of scenes) {
+      const text = this.safeReadText(join(args.projectPath, rel));
+      const deps = new Set<string>();
+      if (text !== null) {
+        const re = /\[ext_resource[^\]]*path="res:\/\/([^"]+\.tscn)"/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+          if (m[1] !== rel) deps.add(m[1]);
+        }
+      }
+      graph[rel] = [...deps];
+    }
+    // DFS cycle detection.
+    const cycles: string[][] = [];
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const stack: string[] = [];
+    const dfs = (node: string) => {
+      if (visited.has(node)) return;
+      visiting.add(node);
+      stack.push(node);
+      for (const next of graph[node] || []) {
+        if (visiting.has(next)) {
+          const idx = stack.indexOf(next);
+          if (idx !== -1) cycles.push([...stack.slice(idx), next]);
+        } else if (!visited.has(next)) {
+          dfs(next);
+        }
+      }
+      stack.pop();
+      visiting.delete(node);
+      visited.add(node);
+    };
+    for (const s of scenes) dfs(s);
+    // Deduplicate cycles by normalized signature.
+    const seen = new Set<string>();
+    const unique = cycles.filter((c) => {
+      const key = [...c].sort().join('|');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return this.structuredResponse(`Scanned ${scenes.length} scene(s); found ${unique.length} circular dependency chain(s).`, {
+      has_circular: unique.length > 0,
+      scenes_checked: scenes.length,
+      circular_dependencies: unique,
+    });
+  }
+
+  private async handleFindSignalConnections(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    const err = this.checkProject(args.projectPath, args.scenePath);
+    if (err) return err;
+    const full = join(args.projectPath, args.scenePath.replace(/^res:\/\//, ''));
+    if (!existsSync(full)) return this.createErrorResponse(`Scene not found: ${args.scenePath}`, []);
+    const text = this.safeReadText(full);
+    if (text === null) return this.createErrorResponse(`Scene unreadable: ${args.scenePath}`, []);
+    const connections: Array<Record<string, string>> = [];
+    const re = /\[connection ([^\]]+)\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const attrs: Record<string, string> = {};
+      const ar = /(\w+)="([^"]*)"/g;
+      let a: RegExpExecArray | null;
+      while ((a = ar.exec(m[1])) !== null) attrs[a[1]] = a[2];
+      connections.push(attrs);
+    }
+    return this.structuredResponse(`Found ${connections.length} signal connection(s) in '${args.scenePath}':`, {
+      scene: args.scenePath.replace(/^res:\/\//, ''),
+      count: connections.length,
+      connections,
+    });
+  }
+
+  private async handleListExportPresets(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const cfg = join(args.projectPath, 'export_presets.cfg');
+    if (!existsSync(cfg)) {
+      return this.structuredResponse('No export_presets.cfg found (no export presets configured).', { count: 0, presets: [] });
+    }
+    const text = this.safeReadText(cfg) || '';
+    const sections = this.parseGodotCfg(text);
+    const presets = sections
+      .filter((s) => /^preset\.\d+$/.test(s.section))
+      .map((s) => ({
+        name: s.values.name || '',
+        platform: s.values.platform || '',
+        runnable: s.values.runnable === 'true',
+        export_path: s.values.export_path || '',
+      }));
+    return this.structuredResponse(`Found ${presets.length} export preset(s):`, { count: presets.length, presets });
+  }
+
+  private async handleGetExportInfo(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.presetName) return this.missing('presetName');
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const cfg = join(args.projectPath, 'export_presets.cfg');
+    if (!existsSync(cfg)) return this.createErrorResponse('No export_presets.cfg found.', []);
+    const text = this.safeReadText(cfg) || '';
+    const sections = this.parseGodotCfg(text);
+    // A preset's options live in the section immediately following its header.
+    for (let i = 0; i < sections.length; i++) {
+      const s = sections[i];
+      if (/^preset\.\d+$/.test(s.section) && s.values.name === args.presetName) {
+        const options = sections[i + 1] && /\.options$/.test(sections[i + 1].section) ? sections[i + 1].values : {};
+        return this.structuredResponse(`Export preset '${args.presetName}':`, { preset: s.values, options });
+      }
+    }
+    return this.createErrorResponse(`Export preset not found: ${args.presetName}`, ['Use list_export_presets to see available presets']);
+  }
+
+  private async handleReadResource(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.resourcePath) return this.missing('resourcePath');
+    const err = this.checkProject(args.projectPath, args.resourcePath);
+    if (err) return err;
+    const rel = String(args.resourcePath).replace(/^res:\/\//, '');
+    const full = join(args.projectPath, rel);
+    if (!existsSync(full)) return this.createErrorResponse(`Resource not found: ${args.resourcePath}`, []);
+    const textExts = ['tres', 'tscn', 'gd', 'gdshader', 'shader', 'cfg', 'godot', 'json', 'import'];
+    const dot = rel.lastIndexOf('.');
+    const ext = dot > 0 ? rel.slice(dot + 1).toLowerCase() : '';
+    if (textExts.includes(ext)) {
+      const text = this.safeReadText(full);
+      if (text === null) return this.createErrorResponse(`Resource too large or unreadable: ${args.resourcePath}`, []);
+      return { content: [{ type: 'text', text }] };
+    }
+    let size = 0;
+    try { size = statSync(full).size; } catch { /* ignore */ }
+    return this.structuredResponse(`Binary resource '${rel}':`, { path: rel, type: ext || 'unknown', size, note: 'Binary resource — content not shown.' });
+  }
+
+  // ----- Inspection / analysis (engine-backed) -----
+
+  private async handleAnalyzeSceneComplexity(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    return this.dispatchOp('analyze_scene_complexity', args.projectPath, { scenePath: args.scenePath },
+      `Complexity of '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleAnalyzeSignalFlow(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    return this.dispatchOp('analyze_signal_flow', args.projectPath, { scenePath: args.scenePath },
+      `Signal flow of '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetProjectSettings(args: any) {
+    args = this.normalizeParameters(args);
+    return this.dispatchOp('get_project_settings', args.projectPath, { filter: args.filter || '' },
+      'Project settings:');
+  }
+
+  private async handleGetSceneExports(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    return this.dispatchOp('get_scene_exports', args.projectPath, { scenePath: args.scenePath },
+      `Exports of '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetNodeGroups(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('get_node_groups', args.projectPath, { scenePath: args.scenePath, nodePath: args.nodePath },
+      `Groups of '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleFindNodesByType(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.type) return this.missing('scenePath', 'type');
+    return this.dispatchOp('find_nodes_by_type', args.projectPath, { scenePath: args.scenePath, type: args.type },
+      `Nodes of type '${args.type}' in '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleFindNodesInGroup(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.group) return this.missing('scenePath', 'group');
+    return this.dispatchOp('find_nodes_in_group', args.projectPath, { scenePath: args.scenePath, group: args.group },
+      `Nodes in group '${args.group}' in '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetInputActions(args: any) {
+    args = this.normalizeParameters(args);
+    return this.dispatchOp('get_input_actions', args.projectPath, { includeBuiltin: !!args.includeBuiltin },
+      'Input actions:');
+  }
+
+  // ----- TileMap (TileMapLayer / legacy TileMap) -----
+
+  private async handleTilemapSetCell(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || args.x === undefined || args.y === undefined) {
+      return this.missing('scenePath', 'nodePath', 'x', 'y');
+    }
+    return this.dispatchOp('tilemap_set_cell', args.projectPath,
+      {
+        scenePath: args.scenePath, nodePath: args.nodePath,
+        x: args.x, y: args.y,
+        sourceId: args.sourceId === undefined ? -1 : args.sourceId,
+        atlasCoords: args.atlasCoords || [0, 0],
+        alternative: args.alternative === undefined ? 0 : args.alternative,
+      },
+      `Set cell (${args.x},${args.y}) on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleTilemapFillRect(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined ||
+        args.x === undefined || args.y === undefined || args.w === undefined || args.h === undefined) {
+      return this.missing('scenePath', 'nodePath', 'x', 'y', 'w', 'h');
+    }
+    return this.dispatchOp('tilemap_fill_rect', args.projectPath,
+      {
+        scenePath: args.scenePath, nodePath: args.nodePath,
+        x: args.x, y: args.y, w: args.w, h: args.h,
+        sourceId: args.sourceId === undefined ? -1 : args.sourceId,
+        atlasCoords: args.atlasCoords || [0, 0],
+        alternative: args.alternative === undefined ? 0 : args.alternative,
+      },
+      `Filled ${args.w}x${args.h} rectangle at (${args.x},${args.y}) on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleTilemapGetCell(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || args.x === undefined || args.y === undefined) {
+      return this.missing('scenePath', 'nodePath', 'x', 'y');
+    }
+    return this.dispatchOp('tilemap_get_cell', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, x: args.x, y: args.y },
+      `Cell (${args.x},${args.y}) of '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleTilemapClear(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('tilemap_clear', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath },
+      `Cleared '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleTilemapGetInfo(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('tilemap_get_info', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath },
+      `TileMap info for '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleTilemapGetUsedCells(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('tilemap_get_used_cells', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath },
+      `Used cells of '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  // ----- Animation (AnimationPlayer) -----
+
+  private async handleListAnimations(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('list_animations', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath },
+      `Animations on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleAddAnimationTrack(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.animation || !args.trackPath) {
+      return this.missing('scenePath', 'nodePath', 'animation', 'trackPath');
+    }
+    return this.dispatchOp('add_animation_track', args.projectPath,
+      {
+        scenePath: args.scenePath, nodePath: args.nodePath,
+        animation: args.animation, trackPath: args.trackPath,
+        trackType: args.trackType || 'value',
+      },
+      `Added track to animation '${args.animation}':`, [args.scenePath]);
+  }
+
+  private async handleSetAnimationKeyframe(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.animation || args.time === undefined) {
+      return this.missing('scenePath', 'nodePath', 'animation', 'time');
+    }
+    if (args.trackIndex === undefined && !args.trackPath) return this.missing('trackIndex', 'trackPath');
+    const p: OperationParams = {
+      scenePath: args.scenePath, nodePath: args.nodePath,
+      animation: args.animation, time: args.time, value: args.value,
+    };
+    if (args.trackIndex !== undefined) p.trackIndex = args.trackIndex;
+    if (args.trackPath !== undefined) p.trackPath = args.trackPath;
+    if (args.easing !== undefined) p.easing = args.easing;
+    return this.dispatchOp('set_animation_keyframe', args.projectPath, p,
+      `Inserted key in animation '${args.animation}':`, [args.scenePath]);
+  }
+
+  private async handleGetAnimationInfo(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.animation) {
+      return this.missing('scenePath', 'nodePath', 'animation');
+    }
+    return this.dispatchOp('get_animation_info', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, animation: args.animation },
+      `Animation info for '${args.animation}':`, [args.scenePath]);
+  }
+
+  private async handleRemoveAnimation(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.animation) {
+      return this.missing('scenePath', 'nodePath', 'animation');
+    }
+    return this.dispatchOp('remove_animation', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, animation: args.animation },
+      `Removed animation '${args.animation}':`, [args.scenePath]);
+  }
+
+  // ----- AnimationTree -----
+
+  private async handleCreateAnimationTree(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    const p: OperationParams = {
+      scenePath: args.scenePath, nodePath: args.nodePath,
+      rootType: args.rootType || 'state_machine',
+    };
+    if (args.parentPath !== undefined) p.parentPath = args.parentPath;
+    if (args.animPlayer !== undefined) p.animPlayer = args.animPlayer;
+    return this.dispatchOp('create_animation_tree', args.projectPath, p,
+      `Created AnimationTree '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetAnimationTreeStructure(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('get_animation_tree_structure', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath },
+      `AnimationTree structure for '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleAddStateMachineState(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.stateName) {
+      return this.missing('scenePath', 'nodePath', 'stateName');
+    }
+    const p: OperationParams = {
+      scenePath: args.scenePath, nodePath: args.nodePath,
+      stateName: args.stateName, stateType: args.stateType || 'animation',
+      position: args.position || [0, 0],
+    };
+    if (args.animation !== undefined) p.animation = args.animation;
+    return this.dispatchOp('add_state_machine_state', args.projectPath, p,
+      `Added state '${args.stateName}':`, [args.scenePath]);
+  }
+
+  private async handleRemoveStateMachineState(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.stateName) {
+      return this.missing('scenePath', 'nodePath', 'stateName');
+    }
+    return this.dispatchOp('remove_state_machine_state', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, stateName: args.stateName },
+      `Removed state '${args.stateName}':`, [args.scenePath]);
+  }
+
+  private async handleAddStateMachineTransition(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.from || !args.to) {
+      return this.missing('scenePath', 'nodePath', 'from', 'to');
+    }
+    const p: OperationParams = {
+      scenePath: args.scenePath, nodePath: args.nodePath,
+      from: args.from, to: args.to,
+      switchMode: args.switchMode || 'immediate',
+      advanceMode: args.advanceMode || 'enabled',
+    };
+    if (args.advanceExpression !== undefined) p.advanceExpression = args.advanceExpression;
+    return this.dispatchOp('add_state_machine_transition', args.projectPath, p,
+      `Added transition '${args.from}' -> '${args.to}':`, [args.scenePath]);
+  }
+
+  private async handleRemoveStateMachineTransition(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.from || !args.to) {
+      return this.missing('scenePath', 'nodePath', 'from', 'to');
+    }
+    return this.dispatchOp('remove_state_machine_transition', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, from: args.from, to: args.to },
+      `Removed transition '${args.from}' -> '${args.to}':`, [args.scenePath]);
+  }
+
+  private async handleSetBlendTreeNode(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.btNodeName || !args.btNodeType) {
+      return this.missing('scenePath', 'nodePath', 'btNodeName', 'btNodeType');
+    }
+    return this.dispatchOp('set_blend_tree_node', args.projectPath,
+      {
+        scenePath: args.scenePath, nodePath: args.nodePath,
+        btNodeName: args.btNodeName, btNodeType: args.btNodeType,
+        position: args.position || [0, 0],
+      },
+      `Set blend tree node '${args.btNodeName}':`, [args.scenePath]);
+  }
+
+  private async handleSetTreeParameter(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.parameter || args.value === undefined) {
+      return this.missing('scenePath', 'nodePath', 'parameter', 'value');
+    }
+    return this.dispatchOp('set_tree_parameter', args.projectPath,
+      {
+        scenePath: args.scenePath, nodePath: args.nodePath,
+        parameter: args.parameter, value: args.value,
+      },
+      `Set parameter '${args.parameter}':`, [args.scenePath]);
+  }
+
+  // ----- Audio (AudioServer buses + AudioStreamPlayer nodes) -----
+
+  private async handleAddAudioBus(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.name) return this.missing('name');
+    return this.dispatchOp('add_audio_bus', args.projectPath,
+      { name: args.name, sendBus: args.sendBus || 'Master' },
+      `Added audio bus '${args.name}':`);
+  }
+
+  private async handleSetAudioBus(args: any) {
+    args = this.normalizeParameters(args);
+    if (args.busName === undefined && args.busIndex === undefined) {
+      return this.missing('busName', 'busIndex');
+    }
+    const opParams: OperationParams = {};
+    if (args.busName !== undefined) opParams.busName = args.busName;
+    if (args.busIndex !== undefined) opParams.busIndex = args.busIndex;
+    if (args.volumeDb !== undefined) opParams.volumeDb = args.volumeDb;
+    if (args.solo !== undefined) opParams.solo = args.solo;
+    if (args.mute !== undefined) opParams.mute = args.mute;
+    if (args.bypassEffects !== undefined) opParams.bypassEffects = args.bypassEffects;
+    if (args.send !== undefined) opParams.send = args.send;
+    const busLabel = args.busName !== undefined ? args.busName : `#${args.busIndex}`;
+    return this.dispatchOp('set_audio_bus', args.projectPath, opParams,
+      `Updated audio bus '${busLabel}':`);
+  }
+
+  private async handleAddAudioBusEffect(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.effectType) return this.missing('effectType');
+    if (args.busName === undefined && args.busIndex === undefined) {
+      return this.missing('busName', 'busIndex');
+    }
+    const opParams: OperationParams = { effectType: args.effectType };
+    if (args.busName !== undefined) opParams.busName = args.busName;
+    if (args.busIndex !== undefined) opParams.busIndex = args.busIndex;
+    if (args.volumeDb !== undefined) opParams.volumeDb = args.volumeDb;
+    if (args.cutoffHz !== undefined) opParams.cutoffHz = args.cutoffHz;
+    if (args.wet !== undefined) opParams.wet = args.wet;
+    if (args.dry !== undefined) opParams.dry = args.dry;
+    return this.dispatchOp('add_audio_bus_effect', args.projectPath, opParams,
+      `Added '${args.effectType}' effect:`);
+  }
+
+  private async handleGetAudioBusLayout(args: any) {
+    args = this.normalizeParameters(args);
+    return this.dispatchOp('get_audio_bus_layout', args.projectPath, {},
+      `Audio bus layout:`);
+  }
+
+  private async handleAddAudioPlayer(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.name) return this.missing('scenePath', 'name');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name,
+      bus: args.bus || 'Master',
+      is3d: !!args.is3d,
+      is2d: !!args.is2d,
+    };
+    if (args.stream !== undefined) opParams.stream = args.stream;
+    if (args.volumeDb !== undefined) opParams.volumeDb = args.volumeDb;
+    if (args.autoplay !== undefined) opParams.autoplay = args.autoplay;
+    return this.dispatchOp('add_audio_player', args.projectPath, opParams,
+      `Added audio player '${args.name}':`, [args.scenePath]);
+  }
+
+  private async handleGetAudioInfo(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    return this.dispatchOp('get_audio_info', args.projectPath,
+      { scenePath: args.scenePath },
+      `Audio nodes in scene:`, [args.scenePath]);
+  }
+
+  // ----- Shaders -----
+
+  private async handleCreateShader(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.path) return this.missing('path');
+    if (!args.path.toLowerCase().endsWith('.gdshader')) {
+      return this.createErrorResponse(`Shader path must end with .gdshader: ${args.path}`, ['Use a project-relative path ending in .gdshader']);
+    }
+    const err = this.checkProject(args.projectPath, args.path);
+    if (err) return err;
+    try {
+      const full = join(args.projectPath, args.path);
+      if (existsSync(full)) {
+        return this.createErrorResponse(`Shader already exists: ${args.path}`, ['Use edit_shader to modify an existing shader']);
+      }
+      const shaderType = args.shaderType || 'canvas_item';
+      const validTypes = ['spatial', 'canvas_item', 'particles', 'sky', 'fog'];
+      if (!validTypes.includes(shaderType)) {
+        return this.createErrorResponse(`Invalid shaderType: ${shaderType}`, [`Use one of: ${validTypes.join(', ')}`]);
+      }
+      const content = args.content ? args.content : this.shaderTemplate(shaderType);
+      const dir = dirname(full);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(full, content, 'utf-8');
+      return this.structuredResponse(`Created shader '${args.path}'.`, { path: args.path, shaderType, bytes: content.length });
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to create shader: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private shaderTemplate(shaderType: string): string {
+    switch (shaderType) {
+      case 'spatial':
+        return `shader_type spatial;\n\nvoid fragment() {\n\tALBEDO = vec3(1.0);\n}\n`;
+      case 'particles':
+        return `shader_type particles;\n\nvoid process() {\n}\n`;
+      case 'sky':
+        return `shader_type sky;\n\nvoid sky() {\n\tCOLOR = vec3(0.0);\n}\n`;
+      case 'fog':
+        return `shader_type fog;\n\nvoid fog() {\n\tDENSITY = 0.0;\n}\n`;
+      case 'canvas_item':
+      default:
+        return `shader_type canvas_item;\n\nvoid fragment() {\n\tCOLOR = texture(TEXTURE, UV);\n}\n`;
+    }
+  }
+
+  private async handleReadShader(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.path) return this.missing('path');
+    const err = this.checkProject(args.projectPath, args.path);
+    if (err) return err;
+    try {
+      const full = join(args.projectPath, args.path);
+      if (!existsSync(full)) return this.createErrorResponse(`Shader not found: ${args.path}`, []);
+      const content = readFileSync(full, 'utf-8');
+      return { content: [{ type: 'text', text: content }] };
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to read shader: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleEditShader(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.path || args.content === undefined) return this.missing('path', 'content');
+    const err = this.checkProject(args.projectPath, args.path);
+    if (err) return err;
+    try {
+      const full = join(args.projectPath, args.path);
+      if (!existsSync(full)) return this.createErrorResponse(`Shader not found: ${args.path}`, ['Use create_shader to create a new shader']);
+      writeFileSync(full, args.content, 'utf-8');
+      return this.structuredResponse(`Updated shader '${args.path}'.`, { path: args.path, bytes: args.content.length });
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to edit shader: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleAssignShaderMaterial(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.shaderPath) {
+      return this.missing('scenePath', 'nodePath', 'shaderPath');
+    }
+    return this.dispatchOp('assign_shader_material', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, shaderPath: args.shaderPath },
+      `Assigned shader material to '${args.nodePath}':`, [args.scenePath, args.shaderPath]);
+  }
+
+  private async handleSetShaderParam(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.param || args.value === undefined) {
+      return this.missing('scenePath', 'nodePath', 'param', 'value');
+    }
+    return this.dispatchOp('set_shader_param', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, param: args.param, value: args.value },
+      `Set shader param '${args.param}' on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetShaderParams(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.shaderPath && !(args.scenePath && args.nodePath !== undefined)) {
+      return this.createErrorResponse('Provide either shaderPath, or scenePath and nodePath', [
+        'Pass shaderPath to inspect a shader directly',
+        'Pass scenePath and nodePath to inspect a node\'s ShaderMaterial',
+      ]);
+    }
+    const opParams: OperationParams = {};
+    const extraPaths: string[] = [];
+    if (args.shaderPath) { opParams.shaderPath = args.shaderPath; extraPaths.push(args.shaderPath); }
+    if (args.scenePath) { opParams.scenePath = args.scenePath; extraPaths.push(args.scenePath); }
+    if (args.nodePath !== undefined) opParams.nodePath = args.nodePath;
+    return this.dispatchOp('get_shader_params', args.projectPath, opParams,
+      `Shader uniforms:`, extraPaths);
+  }
+
+  // ----- Themes -----
+
+  private async handleCreateTheme(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.path) return this.missing('path');
+    return this.dispatchOp('create_theme', args.projectPath, { path: args.path },
+      `Created theme '${args.path}':`, [args.path]);
+  }
+
+  private async handleSetThemeColor(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.themePath || !args.name || !args.themeType || args.color === undefined) {
+      return this.missing('themePath', 'name', 'themeType', 'color');
+    }
+    return this.dispatchOp('set_theme_color', args.projectPath,
+      { themePath: args.themePath, name: args.name, themeType: args.themeType, color: args.color },
+      `Set theme color '${args.name}' (${args.themeType}):`, [args.themePath]);
+  }
+
+  private async handleSetThemeConstant(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.themePath || !args.name || !args.themeType || args.value === undefined) {
+      return this.missing('themePath', 'name', 'themeType', 'value');
+    }
+    return this.dispatchOp('set_theme_constant', args.projectPath,
+      { themePath: args.themePath, name: args.name, themeType: args.themeType, value: args.value },
+      `Set theme constant '${args.name}' (${args.themeType}):`, [args.themePath]);
+  }
+
+  private async handleSetThemeFontSize(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.themePath || !args.name || !args.themeType || args.size === undefined) {
+      return this.missing('themePath', 'name', 'themeType', 'size');
+    }
+    return this.dispatchOp('set_theme_font_size', args.projectPath,
+      { themePath: args.themePath, name: args.name, themeType: args.themeType, size: args.size },
+      `Set theme font size '${args.name}' (${args.themeType}):`, [args.themePath]);
+  }
+
+  private async handleSetThemeStylebox(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.themePath || !args.name || !args.themeType) {
+      return this.missing('themePath', 'name', 'themeType');
+    }
+    const opParams: OperationParams = {
+      themePath: args.themePath,
+      name: args.name,
+      themeType: args.themeType,
+      styleboxType: args.styleboxType || 'flat',
+    };
+    if (args.properties !== undefined) opParams.properties = args.properties;
+    return this.dispatchOp('set_theme_stylebox', args.projectPath, opParams,
+      `Set theme stylebox '${args.name}' (${args.themeType}):`, [args.themePath]);
+  }
+
+  private async handleGetThemeInfo(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.themePath) return this.missing('themePath');
+    return this.dispatchOp('get_theme_info', args.projectPath, { themePath: args.themePath },
+      `Theme info for '${args.themePath}':`, [args.themePath]);
+  }
+
+  // ----- Control layout -----
+
+  private async handleSetupControl(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    if (!args.anchorPreset && args.hSizeFlags === undefined && args.vSizeFlags === undefined) {
+      return this.createErrorResponse('Provide at least one of anchorPreset, hSizeFlags, vSizeFlags', [
+        'Pass anchorPreset (e.g. full_rect) and/or hSizeFlags/vSizeFlags',
+      ]);
+    }
+    const opParams: OperationParams = { scenePath: args.scenePath, nodePath: args.nodePath };
+    if (args.anchorPreset !== undefined) opParams.anchorPreset = args.anchorPreset;
+    if (args.hSizeFlags !== undefined) opParams.hSizeFlags = args.hSizeFlags;
+    if (args.vSizeFlags !== undefined) opParams.vSizeFlags = args.vSizeFlags;
+    return this.dispatchOp('setup_control', args.projectPath, opParams,
+      `Configured Control '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  // ----- Particles -----
+
+  private async handleCreateParticles(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.name) return this.missing('scenePath', 'name');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name,
+      is3d: !!args.is3d,
+    };
+    if (args.amount !== undefined) opParams.amount = args.amount;
+    if (args.lifetime !== undefined) opParams.lifetime = args.lifetime;
+    if (args.oneShot !== undefined) opParams.oneShot = args.oneShot;
+    if (args.emissionShape !== undefined) opParams.emissionShape = args.emissionShape;
+    return this.dispatchOp('create_particles', args.projectPath, opParams,
+      `Created particles '${args.name}':`, [args.scenePath]);
+  }
+
+  private async handleSetParticleMaterial(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    const opParams: OperationParams = { scenePath: args.scenePath, nodePath: args.nodePath };
+    const keys = ['amount', 'lifetime', 'oneShot', 'emitting', 'explosiveness', 'randomness',
+      'direction', 'spread', 'initialVelocityMin', 'initialVelocityMax', 'gravity',
+      'scaleMin', 'scaleMax', 'color', 'angularVelocityMin', 'angularVelocityMax',
+      'orbitVelocityMin', 'orbitVelocityMax', 'dampingMin', 'dampingMax'];
+    for (const k of keys) {
+      if (args[k] !== undefined) opParams[k] = args[k];
+    }
+    return this.dispatchOp('set_particle_material', args.projectPath, opParams,
+      `Updated particle material on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleSetParticleColorGradient(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.stops) {
+      return this.missing('scenePath', 'nodePath', 'stops');
+    }
+    return this.dispatchOp('set_particle_color_gradient', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, stops: args.stops },
+      `Set particle color gradient on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleApplyParticlePreset(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.preset) {
+      return this.missing('scenePath', 'nodePath', 'preset');
+    }
+    return this.dispatchOp('apply_particle_preset', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, preset: args.preset },
+      `Applied particle preset '${args.preset}' to '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetParticleInfo(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('get_particle_info', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath },
+      `Particle info for '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  // ----- Physics -----
+
+  private async handleSetupPhysicsBody(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    const opParams: OperationParams = { scenePath: args.scenePath, nodePath: args.nodePath };
+    const keys = ['collisionLayer', 'collisionMask', 'motionMode', 'mass', 'gravityScale',
+      'linearDamp', 'angularDamp', 'freeze', 'freezeMode', 'contactMonitor', 'maxContactsReported'];
+    for (const k of keys) {
+      if (args[k] !== undefined) opParams[k] = args[k];
+    }
+    return this.dispatchOp('setup_physics_body', args.projectPath, opParams,
+      `Configured physics body '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleSetupCollision(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.shapeType) {
+      return this.missing('scenePath', 'nodePath', 'shapeType');
+    }
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      nodePath: args.nodePath,
+      shapeType: args.shapeType,
+      dimension: args.dimension || '2d',
+    };
+    if (args.size !== undefined) opParams.size = args.size;
+    if (args.radius !== undefined) opParams.radius = args.radius;
+    if (args.height !== undefined) opParams.height = args.height;
+    if (args.points !== undefined) opParams.points = args.points;
+    if (args.oneWayCollision !== undefined) opParams.oneWayCollision = args.oneWayCollision;
+    if (args.disabled !== undefined) opParams.disabled = args.disabled;
+    return this.dispatchOp('setup_collision', args.projectPath, opParams,
+      `Added collision shape to '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleSetPhysicsLayers(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.names) return this.missing('names');
+    return this.dispatchOp('set_physics_layers', args.projectPath,
+      { dimension: args.dimension || '2d', names: args.names },
+      `Set physics layer names:`, []);
+  }
+
+  private async handleGetPhysicsLayers(args: any) {
+    args = this.normalizeParameters(args);
+    return this.dispatchOp('get_physics_layers', args.projectPath, {},
+      `Physics layer names:`, []);
+  }
+
+  private async handleAddRaycast(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.name) return this.missing('scenePath', 'name');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name,
+      dimension: args.dimension || '2d',
+    };
+    if (args.targetPosition !== undefined) opParams.targetPosition = args.targetPosition;
+    if (args.collisionMask !== undefined) opParams.collisionMask = args.collisionMask;
+    if (args.enabled !== undefined) opParams.enabled = args.enabled;
+    return this.dispatchOp('add_raycast', args.projectPath, opParams,
+      `Added raycast '${args.name}':`, [args.scenePath]);
+  }
+
+  private async handleGetCollisionInfo(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('get_collision_info', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath },
+      `Collision info for '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  // ----- Navigation -----
+
+  private async handleSetupNavigationRegion(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.name) return this.missing('scenePath', 'name');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name,
+      dimension: args.dimension || '2d',
+    };
+    if (args.navigationLayers !== undefined) opParams.navigationLayers = args.navigationLayers;
+    return this.dispatchOp('setup_navigation_region', args.projectPath, opParams,
+      `Added navigation region '${args.name}':`, [args.scenePath]);
+  }
+
+  private async handleBakeNavigationMesh(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    const opParams: OperationParams = { scenePath: args.scenePath, nodePath: args.nodePath };
+    if (args.outlineVertices !== undefined) opParams.outlineVertices = args.outlineVertices;
+    return this.dispatchOp('bake_navigation_mesh', args.projectPath, opParams,
+      `Baked navigation mesh on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleSetupNavigationAgent(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.name) return this.missing('scenePath', 'name');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name,
+      dimension: args.dimension || '2d',
+    };
+    const keys = ['radius', 'maxSpeed', 'pathDesiredDistance', 'targetDesiredDistance',
+      'avoidanceEnabled', 'navigationLayers'];
+    for (const k of keys) {
+      if (args[k] !== undefined) opParams[k] = args[k];
+    }
+    return this.dispatchOp('setup_navigation_agent', args.projectPath, opParams,
+      `Added navigation agent '${args.name}':`, [args.scenePath]);
+  }
+
+  private async handleSetNavigationLayers(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || args.navigationLayers === undefined) {
+      return this.missing('scenePath', 'nodePath', 'navigationLayers');
+    }
+    return this.dispatchOp('set_navigation_layers', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, navigationLayers: args.navigationLayers },
+      `Set navigation layers on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetNavigationInfo(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    return this.dispatchOp('get_navigation_info', args.projectPath,
+      { scenePath: args.scenePath },
+      `Navigation info for scene:`, [args.scenePath]);
+  }
+
+  // ----- 3D -----
+
+  private async handleAddMeshInstance(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.name) return this.missing('scenePath', 'name');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name,
+      meshType: args.meshType || 'box',
+    };
+    if (args.size !== undefined) opParams.size = args.size;
+    if (args.radius !== undefined) opParams.radius = args.radius;
+    if (args.height !== undefined) opParams.height = args.height;
+    return this.dispatchOp('add_mesh_instance', args.projectPath, opParams,
+      `Added mesh instance '${args.name}':`, [args.scenePath]);
+  }
+
+  private async handleSetupLighting(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      lightType: args.lightType || 'directional',
+    };
+    if (args.name !== undefined) opParams.name = args.name;
+    if (args.preset !== undefined) opParams.preset = args.preset;
+    if (args.energy !== undefined) opParams.energy = args.energy;
+    if (args.color !== undefined) opParams.color = args.color;
+    return this.dispatchOp('setup_lighting', args.projectPath, opParams,
+      `Added light:`, [args.scenePath]);
+  }
+
+  private async handleSetMaterial3d(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      nodePath: args.nodePath,
+      surfaceIndex: args.surfaceIndex === undefined ? 0 : args.surfaceIndex,
+    };
+    if (args.albedoColor !== undefined) opParams.albedoColor = args.albedoColor;
+    if (args.metallic !== undefined) opParams.metallic = args.metallic;
+    if (args.roughness !== undefined) opParams.roughness = args.roughness;
+    return this.dispatchOp('set_material_3d', args.projectPath, opParams,
+      `Applied material to '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleSetupEnvironment(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name || 'WorldEnvironment',
+      backgroundMode: args.backgroundMode || 'sky',
+    };
+    if (args.features !== undefined) opParams.features = args.features;
+    if (args.clearColor !== undefined) opParams.clearColor = args.clearColor;
+    return this.dispatchOp('setup_environment', args.projectPath, opParams,
+      `Added world environment:`, [args.scenePath]);
+  }
+
+  private async handleSetupCamera3d(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name || 'Camera3D',
+      projection: args.projection || 'perspective',
+    };
+    if (args.fov !== undefined) opParams.fov = args.fov;
+    if (args.position !== undefined) opParams.position = args.position;
+    if (args.current !== undefined) opParams.current = args.current;
+    return this.dispatchOp('setup_camera_3d', args.projectPath, opParams,
+      `Added camera:`, [args.scenePath]);
+  }
+
+  private async handleAddGridmap(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.name) return this.missing('scenePath', 'name');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      parentPath: args.parentPath === undefined ? '' : args.parentPath,
+      name: args.name,
+    };
+    if (args.meshLibrary !== undefined) opParams.meshLibrary = args.meshLibrary;
+    if (args.cellSize !== undefined) opParams.cellSize = args.cellSize;
+    return this.dispatchOp('add_gridmap', args.projectPath, opParams,
+      `Added gridmap '${args.name}':`, [args.scenePath]);
+  }
+
+  // --- Node / script / batch / uid toolset ---------------------------------
+
+  // Convenience alias of set_node_property.
+  private async handleUpdateProperty(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.property || args.value === undefined) {
+      return this.missing('scenePath', 'nodePath', 'property', 'value');
+    }
+    return this.dispatchOp('set_node_property', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, property: args.property, value: args.value },
+      `Set '${args.property}' on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  // Alias of check_script: delegate to the same parse-check logic.
+  private async handleValidateScript(args: any) {
+    return this.handleCheckScript(args);
+  }
+
+  // Alias of instance_scene: map name -> nodeName and dispatch.
+  private async handleAddSceneInstance(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.instanceScenePath) return this.missing('scenePath', 'instanceScenePath');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      instanceScenePath: args.instanceScenePath,
+      parentNodePath: args.parentPath || '',
+    };
+    if (args.name) opParams.nodeName = args.name;
+    return this.dispatchOp('instance_scene', args.projectPath, opParams,
+      `Instanced '${args.instanceScenePath}' into '${args.scenePath}':`, [args.scenePath, args.instanceScenePath]);
+  }
+
+  private async handleMoveNode(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || args.newParent === undefined) {
+      return this.missing('scenePath', 'nodePath', 'newParent');
+    }
+    return this.dispatchOp('move_node', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, newParent: args.newParent, keepGlobalTransform: args.keepGlobalTransform !== false },
+      `Moved '${args.nodePath}' under '${args.newParent}':`, [args.scenePath]);
+  }
+
+  private async handleAddResource(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.property || !args.resourceType) {
+      return this.missing('scenePath', 'nodePath', 'property', 'resourceType');
+    }
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      nodePath: args.nodePath,
+      property: args.property,
+      resourceType: args.resourceType,
+    };
+    if (args.properties) opParams.properties = args.properties;
+    return this.dispatchOp('add_resource', args.projectPath, opParams,
+      `Assigned ${args.resourceType} to '${args.property}' on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleSetAnchorPreset(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.preset) {
+      return this.missing('scenePath', 'nodePath', 'preset');
+    }
+    return this.dispatchOp('set_anchor_preset', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, preset: args.preset },
+      `Set anchor preset '${args.preset}' on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleSetNodeGroups(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !Array.isArray(args.groups)) {
+      return this.missing('scenePath', 'nodePath', 'groups');
+    }
+    return this.dispatchOp('set_node_groups', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, groups: args.groups },
+      `Set groups on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleBatchAddNodes(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !Array.isArray(args.nodes)) return this.missing('scenePath', 'nodes');
+    return this.dispatchOp('batch_add_nodes', args.projectPath,
+      { scenePath: args.scenePath, nodes: args.nodes },
+      `Added ${args.nodes.length} node(s) to '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleBatchSetProperty(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.property || args.value === undefined) {
+      return this.missing('scenePath', 'property', 'value');
+    }
+    if (!Array.isArray(args.nodePaths) && !args.nodeType) {
+      return this.missing('nodePaths or nodeType');
+    }
+    const opParams: OperationParams = { scenePath: args.scenePath, property: args.property, value: args.value };
+    if (Array.isArray(args.nodePaths)) opParams.nodePaths = args.nodePaths;
+    if (args.nodeType) opParams.nodeType = args.nodeType;
+    return this.dispatchOp('batch_set_property', args.projectPath, opParams,
+      `Set '${args.property}' across nodes in '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleCrossSceneSetProperty(args: any) {
+    args = this.normalizeParameters(args);
+    if (!Array.isArray(args.scenePaths) || !args.nodeType || !args.property || args.value === undefined) {
+      return this.missing('scenePaths', 'nodeType', 'property', 'value');
+    }
+    return this.dispatchOp('cross_scene_set_property', args.projectPath,
+      { scenePaths: args.scenePaths, nodeType: args.nodeType, property: args.property, value: args.value, dryRun: args.dryRun === true },
+      `Set '${args.property}' on ${args.nodeType} across ${args.scenePaths.length} scene(s):`, args.scenePaths);
+  }
+
+  // Overwrite an existing .gd script file (filesystem op).
+  private async handleEditScript(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scriptPath || args.content === undefined) return this.missing('scriptPath', 'content');
+    const err = this.checkProject(args.projectPath, args.scriptPath);
+    if (err) return err;
+    try {
+      const full = join(args.projectPath, args.scriptPath);
+      if (!existsSync(full)) return this.createErrorResponse(`Script not found: ${args.scriptPath}`, ['Use create_script to create a new script']);
+      writeFileSync(full, args.content, 'utf-8');
+      return this.structuredResponse(`Updated script '${args.scriptPath}'.`, { path: args.scriptPath, bytes: args.content.length });
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to edit script: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  // Delete a .tscn scene file (filesystem op) with strict safety checks.
+  private async handleDeleteScene(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    if (!args.scenePath.toLowerCase().endsWith('.tscn')) {
+      return this.createErrorResponse(`Refusing to delete non-scene file: ${args.scenePath}`, ['Only .tscn files can be deleted with delete_scene']);
+    }
+    const err = this.checkProject(args.projectPath, args.scenePath);
+    if (err) return err;
+    try {
+      const full = join(args.projectPath, args.scenePath);
+      if (!existsSync(full)) return this.createErrorResponse(`Scene not found: ${args.scenePath}`, ['Verify the scene path is correct']);
+      unlinkSync(full);
+      return this.structuredResponse(`Deleted scene '${args.scenePath}'.`, { path: args.scenePath, deleted: true });
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to delete scene: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleSetInputAction(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.action || !Array.isArray(args.events)) return this.missing('action', 'events');
+    const opParams: OperationParams = { action: args.action, events: args.events };
+    if (args.deadzone !== undefined) opParams.deadzone = args.deadzone;
+    return this.dispatchOp('set_input_action', args.projectPath, opParams,
+      `Set input action '${args.action}':`);
+  }
+
+  private async handleUidToProjectPath(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.uid) return this.missing('uid');
+    return this.dispatchOp('uid_to_project_path', args.projectPath,
+      { uid: args.uid }, `Resolved UID '${args.uid}':`);
+  }
+
+  private async handleProjectPathToUid(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.path) return this.missing('path');
+    return this.dispatchOp('project_path_to_uid', args.projectPath,
+      { path: args.path }, `Resolved path '${args.path}':`, [args.path]);
+  }
+
+  private async handleGetAndroidPresetInfo(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    const cfg = join(args.projectPath, 'export_presets.cfg');
+    if (!existsSync(cfg)) return this.createErrorResponse('No export_presets.cfg found (no export presets configured).', []);
+    const text = this.safeReadText(cfg) || '';
+    const sections = this.parseGodotCfg(text);
+    for (let i = 0; i < sections.length; i++) {
+      const s = sections[i];
+      if (!/^preset\.\d+$/.test(s.section)) continue;
+      const isAndroid = (s.values.platform || '').toLowerCase() === 'android';
+      const matches = args.presetName ? s.values.name === args.presetName : isAndroid;
+      if (!matches) continue;
+      const options = sections[i + 1] && /\.options$/.test(sections[i + 1].section) ? sections[i + 1].values : {};
+      return this.structuredResponse(`Android export preset '${s.values.name}':`, {
+        preset: s.values,
+        package_name: options['package/unique_name'],
+        version_code: options['version/code'],
+        version_name: options['version/name'],
+        keystore_debug: options['keystore/debug'],
+        keystore_release: options['keystore/release'],
+        min_sdk: options['gradle_build/min_sdk'],
+        target_sdk: options['gradle_build/target_sdk'],
+        options,
+      });
+    }
+    return this.createErrorResponse(
+      args.presetName ? `Export preset not found: ${args.presetName}` : 'No Android export preset found.',
+      ['Add an Android export preset in Godot, or pass a valid presetName', 'Use list_export_presets to see configured presets']
+    );
   }
 
   /**
