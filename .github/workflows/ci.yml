@@ -42,3 +42,37 @@ jobs:
           # setup-godot puts the binary on PATH as `godot`; the server also
           # auto-detects it, but set GODOT_PATH explicitly for determinism.
           GODOT_PATH: godot
+
+  docs:
+    name: Tool reference up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Set up Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: '4.4.1'
+          use-dotnet: false
+          include-templates: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Regenerate tool reference
+        run: npm run docs:tools
+        env:
+          GODOT_PATH: godot
+
+      - name: Fail if docs/TOOLS.md is stale
+        run: |
+          if ! git diff --exit-code -- docs/TOOLS.md; then
+            echo "::error::docs/TOOLS.md is out of date. Run 'npm run docs:tools' and commit the result."
+            exit 1
+          fi
