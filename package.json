@@ -1,7 +1,7 @@
 {
-  "name": "godot-mcp",
-  "version": "0.1.1",
-  "description": "MCP server for interfacing with Godot game engine. Provides tools for launching the editor, running projects, and capturing debug output.",
+  "name": "godot-mcp-extended",
+  "version": "0.2.0",
+  "description": "MCP server for the Godot game engine with a full inspect -> edit -> validate toolset (47 tools): scene inspection, node editing, signals, scripts, resources, and project settings.",
   "keywords": [
     "godot",
     "mcp",
@@ -9,16 +9,19 @@
     "claude",
     "cline"
   ],
-  "homepage": "https://github.com/Coding-Solo/godot-mcp",
+  "homepage": "https://github.com/ibnutoriq/godot-mcp-extended",
   "bugs": {
-    "url": "https://github.com/Coding-Solo/godot-mcp/issues"
+    "url": "https://github.com/ibnutoriq/godot-mcp-extended/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Coding-Solo/godot-mcp.git"
+    "url": "https://github.com/ibnutoriq/godot-mcp-extended.git"
   },
   "license": "MIT",
-  "author": "Solomon Elias <solomon@sippy.ai>",
+  "author": "Ibnu Toriq <ibnutoriq@gmail.com>",
+  "contributors": [
+    "Solomon Elias <solomon@sippy.ai> (original godot-mcp)"
+  ],
   "type": "module",
   "bin": {
     "godot-mcp": "./build/index.js"

@@ -59,6 +59,8 @@ A Model Context Protocol (MCP) server for interacting with the Godot game engine
 
 Godot MCP enables AI agents to launch the Godot editor, run projects, capture debug output, and control project execution. This direct feedback loop helps agents understand what works and what doesn't in real Godot projects, leading to better code generation and debugging assistance.
 
+> This project (`godot-mcp-extended`) builds on the original [godot-mcp](https://github.com/Coding-Solo/godot-mcp) by Solomon Elias (MIT), adding a full inspect → edit → validate toolset (47 tools total).
+
 ## Features
 
 - **Launch Godot Editor**: Open the Godot editor for a specific project
