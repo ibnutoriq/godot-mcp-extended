@@ -78,6 +78,34 @@ Godot MCP enables AI agents to launch the Godot editor, run projects, capture de
   - Get UID for specific files
   - Update UID references by resaving resources
 
+### Extended toolset
+
+The server exposes a full **inspect → mutate → validate** loop so an agent can edit scenes deliberately instead of creating them blind. All operations run headless and report structured JSON results with authoritative exit-code error handling.
+
+- **Scene inspection (READ)**:
+  - `get_scene_tree` — full node tree of a scene as JSON (names, types, paths, scripts, groups)
+  - `get_node_properties` — read a node's properties (`overrides` or `effective` mode)
+  - `get_scene_dependencies` — list external resources a scene references and whether each exists
+  - `describe_class` — ClassDB introspection (parent, properties, methods, signals) to discover valid names
+  - `list_scripts` / `read_script` — enumerate and read GDScript files
+- **Diagnostics (VALIDATE)**:
+  - `check_script` — parse/compile-check a script via `--check-only` without running the game
+  - `validate_scene` — verify a scene loads/instantiates and report missing dependencies
+  - `run_and_capture_errors` — run for a bounded time and return structured script errors/warnings
+- **Node editing (EDIT)**:
+  - `set_node_property` — set a property on an existing node (auto-coerces `[x,y]`→`Vector2`, colors, enums, `res://`→resource)
+  - `delete_node`, `rename_node`, `reparent_node`, `duplicate_node`
+  - `add_to_group` / `remove_from_group`
+- **Behavior wiring (BEHAVIOR)**:
+  - `create_script` / `attach_script` — create a `.gd` file and attach it to a node
+  - `connect_signal` / `disconnect_signal` / `list_connections` — manage persisted signal connections
+  - `instance_scene` — compose scenes by instancing one into another (serialized as a true instance)
+- **Project configuration (PROJECT)**:
+  - `get_project_setting` / `set_project_setting` / `set_main_scene`
+  - `list_autoloads` / `add_autoload` / `remove_autoload`
+  - `add_input_action` / `remove_input_action`
+  - `create_resource` / `edit_resource` / `get_resource_properties`
+
 ## Requirements
 
 - [Godot Engine](https://godotengine.org/download) installed on your system

@@ -9,7 +9,7 @@
 
 import { fileURLToPath } from 'url';
 import { join, dirname, basename, normalize } from 'path';
-import { existsSync, readdirSync, mkdirSync } from 'fs';
+import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'fs';
 import { spawn, execFile } from 'child_process';
 import { promisify } from 'util';
 
@@ -24,7 +24,14 @@ import {
 
 // Check if debug mode is enabled
 const DEBUG_MODE: boolean = process.env.DEBUG === 'true';
-const GODOT_DEBUG_MODE: boolean = true; // Always use GODOT DEBUG MODE
+// Verbose GDScript debug branches are opt-in (they add slow self-test paths).
+// Enable by setting GODOT_DEBUG=true in the environment.
+const GODOT_DEBUG_MODE: boolean = process.env.GODOT_DEBUG === 'true';
+
+// Default timeout (ms) for a single headless Godot operation, overridable via env.
+const OPERATION_TIMEOUT_MS: number = parseInt(process.env.GODOT_OP_TIMEOUT || '60000', 10);
+// Marker the GDScript ops use to emit a structured JSON result line on stdout.
+const RESULT_MARKER = '__RESULT__';
 
 const execFileAsync = promisify(execFile);
 
@@ -89,6 +96,20 @@ class GodotServer {
     'directory': 'directory',
     'recursive': 'recursive',
     'scene': 'scene',
+    // Extended toolset params
+    'new_name': 'newName',
+    'new_parent_path': 'newParentPath',
+    'keep_global_transform': 'keepGlobalTransform',
+    'script_path': 'scriptPath',
+    'from_node': 'fromNode',
+    'to_node': 'toNode',
+    'signal_name': 'signalName',
+    'instance_scene_path': 'instanceScenePath',
+    'autoload_name': 'autoloadName',
+    'resource_path': 'resourcePath',
+    'resource_class': 'resourceClass',
+    'class_name_query': 'classNameQuery',
+    'timeout_seconds': 'timeoutSeconds',
   };
 
   /**
@@ -485,7 +506,7 @@ class GodotServer {
     operation: string,
     params: OperationParams,
     projectPath: string
-  ): Promise<{ stdout: string; stderr: string }> {
+  ): Promise<{ stdout: string; stderr: string; code: number }> {
     this.logDebug(`Executing operation: ${operation} in project: ${projectPath}`);
     this.logDebug(`Original operation params: ${JSON.stringify(params)}`);
 
@@ -525,21 +546,96 @@ class GodotServer {
 
       this.logDebug(`Executing: ${this.godotPath} ${args.join(' ')}`);
 
-      const { stdout, stderr } = await execFileAsync(this.godotPath!, args);
+      const { stdout, stderr } = await execFileAsync(this.godotPath!, args, {
+        timeout: OPERATION_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024 * 32,
+      });
 
-      return { stdout: stdout ?? '', stderr: stderr ?? '' };
+      // execFileAsync only resolves on exit code 0.
+      return { stdout: stdout ?? '', stderr: stderr ?? '', code: 0 };
     } catch (error: unknown) {
-      // If execFileAsync throws, it still contains stdout/stderr
+      // If execFileAsync throws, it still contains stdout/stderr plus the exit code.
       if (error instanceof Error && 'stdout' in error && 'stderr' in error) {
-        const execError = error as Error & { stdout: string; stderr: string };
+        const execError = error as Error & { stdout: string; stderr: string; code?: number; killed?: boolean };
+        if (execError.killed) {
+          throw new Error(`Godot operation '${operation}' timed out after ${OPERATION_TIMEOUT_MS}ms`);
+        }
         return {
           stdout: execError.stdout ?? '',
           stderr: execError.stderr ?? '',
+          code: typeof execError.code === 'number' ? execError.code : 1,
         };
       }
 
       throw error;
     }
+  }
+
+  /**
+   * Execute an operation and parse its structured result.
+   *
+   * New operations report success/failure via the process exit code AND emit a
+   * single `__RESULT__<json>` line on stdout. This unifies error detection
+   * (exit code is authoritative; the legacy "Failed to" stderr heuristic is kept
+   * only as a fallback) and returns parsed data to the caller.
+   */
+  private async executeStructuredOperation(
+    operation: string,
+    params: OperationParams,
+    projectPath: string
+  ): Promise<{ success: boolean; result: any | null; stdout: string; stderr: string }> {
+    const { stdout, stderr, code } = await this.executeOperation(operation, params, projectPath);
+
+    let result: any | null = null;
+    for (const line of stdout.split('\n')) {
+      const idx = line.indexOf(RESULT_MARKER);
+      if (idx !== -1) {
+        try {
+          result = JSON.parse(line.slice(idx + RESULT_MARKER.length));
+        } catch {
+          // Leave result null if the payload is malformed.
+        }
+      }
+    }
+
+    const success = code === 0 && !(stderr && stderr.includes('Failed to'));
+    return { success, result, stdout, stderr };
+  }
+
+  /**
+   * Shared guard: validate the project directory and that paths are safe.
+   * Returns an error response object if invalid, otherwise null.
+   */
+  private checkProject(projectPath: string, ...paths: string[]): any | null {
+    if (!projectPath) {
+      return this.createErrorResponse('Missing required parameter: projectPath', ['Provide a projectPath']);
+    }
+    for (const p of [projectPath, ...paths]) {
+      if (p && !this.validatePath(p)) {
+        return this.createErrorResponse('Invalid path', ['Provide valid paths without ".." segments']);
+      }
+    }
+    const projectFile = join(projectPath, 'project.godot');
+    if (!existsSync(projectFile)) {
+      return this.createErrorResponse(`Not a valid Godot project: ${projectPath}`, [
+        'Ensure the path points to a directory containing a project.godot file',
+        'Use list_projects to find valid Godot projects',
+      ]);
+    }
+    return null;
+  }
+
+  /**
+   * Build a standard success response carrying both a human summary and the
+   * structured JSON payload (pretty-printed) for downstream tooling.
+   */
+  private structuredResponse(summary: string, result: any): any {
+    const payload = result !== null && result !== undefined ? JSON.stringify(result, null, 2) : '';
+    return {
+      content: [
+        { type: 'text', text: payload ? `${summary}\n\n${payload}` : summary },
+      ],
+    };
   }
 
   /**
@@ -923,6 +1019,450 @@ class GodotServer {
             required: ['projectPath'],
           },
         },
+        // ===== Phase 1: READ / inspect =====
+        {
+          name: 'get_scene_tree',
+          description: 'Inspect a scene: returns its full node tree (names, types, paths, scripts, groups) as JSON',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file (relative to project, e.g. scenes/main.tscn)' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'get_node_properties',
+          description: 'Read the properties of a single node in a scene. mode "overrides" returns only non-default values, "effective" returns all stored values.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node within the scene (e.g. Player/Sprite2D). Empty/"root" for the root node.' },
+              mode: { type: 'string', enum: ['overrides', 'effective'], description: 'overrides (default) or effective' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'get_scene_dependencies',
+          description: 'List the external resources (scripts, textures, instanced scenes) a scene references, and whether each exists',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'describe_class',
+          description: 'Introspect a Godot built-in class via ClassDB: its parent, properties, methods, and signals. Use to discover valid property/signal names before editing.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              className: { type: 'string', description: 'The Godot class to describe (e.g. CharacterBody2D)' },
+            },
+            required: ['projectPath', 'className'],
+          },
+        },
+        {
+          name: 'list_scripts',
+          description: 'List all GDScript (.gd) files in the project (or a subdirectory)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              directory: { type: 'string', description: 'Optional subdirectory (relative to project) to limit the search' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'read_script',
+          description: 'Read the source of a script file in the project',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scriptPath: { type: 'string', description: 'Path to the .gd file (relative to project)' },
+            },
+            required: ['projectPath', 'scriptPath'],
+          },
+        },
+        // ===== Phase 2: VALIDATE / diagnostics =====
+        {
+          name: 'check_script',
+          description: 'Parse/compile-check a GDScript file using Godot --check-only. Returns parse errors/warnings without running the game.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scriptPath: { type: 'string', description: 'Path to the .gd file to check (relative to project)' },
+            },
+            required: ['projectPath', 'scriptPath'],
+          },
+        },
+        {
+          name: 'validate_scene',
+          description: 'Validate a scene headless: reports whether it loads/instantiates and lists any missing dependencies',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'run_and_capture_errors',
+          description: 'Run the project (optionally a single scene) for a bounded time and return captured stdout plus structured script errors/warnings',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scene: { type: 'string', description: 'Optional specific scene to run (relative to project)' },
+              timeoutSeconds: { type: 'number', description: 'How long to let the project run before stopping (default 5)' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        // ===== Phase 3: EDIT / structural =====
+        {
+          name: 'set_node_property',
+          description: 'Set a property on an existing node in a scene. Values are coerced to the property type (e.g. [x,y] -> Vector2, "res://..." -> resource).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node within the scene' },
+              property: { type: 'string', description: 'Property name (e.g. position, modulate, text)' },
+              value: { description: 'The value to set (number, string, bool, [x,y] array, {r,g,b,a} object, etc.)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'property', 'value'],
+          },
+        },
+        {
+          name: 'delete_node',
+          description: 'Delete a node (and its descendants) from a scene',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node to delete' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'rename_node',
+          description: 'Rename a node in a scene',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node to rename' },
+              newName: { type: 'string', description: 'The new name for the node' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'newName'],
+          },
+        },
+        {
+          name: 'reparent_node',
+          description: 'Move a node to a new parent within the same scene',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node to move' },
+              newParentPath: { type: 'string', description: 'Path to the new parent node' },
+              keepGlobalTransform: { type: 'boolean', description: 'Preserve global transform (default true)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'newParentPath'],
+          },
+        },
+        {
+          name: 'duplicate_node',
+          description: 'Duplicate a node subtree within a scene',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node to duplicate' },
+              newName: { type: 'string', description: 'Optional name for the duplicate' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath'],
+          },
+        },
+        {
+          name: 'add_to_group',
+          description: 'Add a node to a group (persistent, saved in the scene)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node' },
+              group: { type: 'string', description: 'Group name' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'group'],
+          },
+        },
+        {
+          name: 'remove_from_group',
+          description: 'Remove a node from a group',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node' },
+              group: { type: 'string', description: 'Group name' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'group'],
+          },
+        },
+        // ===== Phase 4: BEHAVIOR =====
+        {
+          name: 'create_script',
+          description: 'Create a new GDScript file. Optionally specify extends, class_name, and body.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scriptPath: { type: 'string', description: 'Path for the new .gd file (relative to project)' },
+              extends: { type: 'string', description: 'Base class to extend (default Node)' },
+              className: { type: 'string', description: 'Optional class_name to register globally' },
+              content: { type: 'string', description: 'Full script content. If provided, extends/className are ignored.' },
+              overwrite: { type: 'boolean', description: 'Overwrite if the file already exists (default false)' },
+            },
+            required: ['projectPath', 'scriptPath'],
+          },
+        },
+        {
+          name: 'attach_script',
+          description: 'Attach an existing script to a node in a scene',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node' },
+              scriptPath: { type: 'string', description: 'Path to the .gd script (relative to project)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'scriptPath'],
+          },
+        },
+        {
+          name: 'connect_signal',
+          description: 'Persist a signal connection from one node to a method on another node in the same scene',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              fromNode: { type: 'string', description: 'Path to the emitting node' },
+              signalName: { type: 'string', description: 'Signal name (e.g. pressed, body_entered)' },
+              toNode: { type: 'string', description: 'Path to the receiving node' },
+              method: { type: 'string', description: 'Method name to call on the receiver' },
+            },
+            required: ['projectPath', 'scenePath', 'fromNode', 'signalName', 'toNode', 'method'],
+          },
+        },
+        {
+          name: 'disconnect_signal',
+          description: 'Remove a stored signal connection from a scene',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              fromNode: { type: 'string', description: 'Path to the emitting node' },
+              signalName: { type: 'string', description: 'Signal name' },
+              toNode: { type: 'string', description: 'Path to the receiving node' },
+              method: { type: 'string', description: 'Method name' },
+            },
+            required: ['projectPath', 'scenePath', 'fromNode', 'signalName', 'toNode', 'method'],
+          },
+        },
+        {
+          name: 'list_connections',
+          description: 'List all signal connections stored within a scene',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'instance_scene',
+          description: 'Add another scene as an instanced child inside a scene (composition / prefabs)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the parent scene file' },
+              instanceScenePath: { type: 'string', description: 'Path to the scene to instance' },
+              parentNodePath: { type: 'string', description: 'Node to add the instance under (default root)' },
+              nodeName: { type: 'string', description: 'Optional name for the instance node' },
+            },
+            required: ['projectPath', 'scenePath', 'instanceScenePath'],
+          },
+        },
+        // ===== Phase 5: PROJECT settings + resources =====
+        {
+          name: 'get_project_setting',
+          description: 'Read a project setting from project.godot',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              setting: { type: 'string', description: 'Setting key (e.g. application/config/name)' },
+            },
+            required: ['projectPath', 'setting'],
+          },
+        },
+        {
+          name: 'set_project_setting',
+          description: 'Set a project setting in project.godot',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              setting: { type: 'string', description: 'Setting key (e.g. display/window/size/viewport_width)' },
+              value: { description: 'The value to set' },
+            },
+            required: ['projectPath', 'setting', 'value'],
+          },
+        },
+        {
+          name: 'set_main_scene',
+          description: 'Set the project main scene (application/run/main_scene)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene to set as main (relative to project)' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'list_autoloads',
+          description: 'List the autoload singletons configured in the project',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'add_autoload',
+          description: 'Add (or update) an autoload singleton',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              autoloadName: { type: 'string', description: 'Singleton name (e.g. GameState)' },
+              path: { type: 'string', description: 'Path to the script or scene (relative to project)' },
+              enabled: { type: 'boolean', description: 'Enable the singleton (default true)' },
+            },
+            required: ['projectPath', 'autoloadName', 'path'],
+          },
+        },
+        {
+          name: 'remove_autoload',
+          description: 'Remove an autoload singleton',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              autoloadName: { type: 'string', description: 'Singleton name to remove' },
+            },
+            required: ['projectPath', 'autoloadName'],
+          },
+        },
+        {
+          name: 'add_input_action',
+          description: 'Add or extend an input map action with events. Each event: {type:"key", key:"Space"} | {type:"mouse_button", button_index:1} | {type:"joypad_button", button_index:0} | {type:"joypad_motion", axis:0, axis_value:1.0}.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              action: { type: 'string', description: 'Action name (e.g. jump)' },
+              events: { type: 'array', description: 'Array of event specs', items: { type: 'object' } },
+              deadzone: { type: 'number', description: 'Deadzone (default 0.5)' },
+              replace: { type: 'boolean', description: 'Replace existing events instead of appending (default false)' },
+            },
+            required: ['projectPath', 'action', 'events'],
+          },
+        },
+        {
+          name: 'remove_input_action',
+          description: 'Remove an input map action',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              action: { type: 'string', description: 'Action name to remove' },
+            },
+            required: ['projectPath', 'action'],
+          },
+        },
+        {
+          name: 'create_resource',
+          description: 'Create a new .tres/.res resource of a given class with optional properties (e.g. StandardMaterial3D, custom Resource)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              resourcePath: { type: 'string', description: 'Path for the new resource (relative to project)' },
+              resourceClass: { type: 'string', description: 'Resource class name (e.g. StandardMaterial3D)' },
+              properties: { type: 'object', description: 'Optional initial properties' },
+            },
+            required: ['projectPath', 'resourcePath', 'resourceClass'],
+          },
+        },
+        {
+          name: 'edit_resource',
+          description: 'Edit properties of an existing resource file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              resourcePath: { type: 'string', description: 'Path to the resource (relative to project)' },
+              properties: { type: 'object', description: 'Properties to set' },
+            },
+            required: ['projectPath', 'resourcePath', 'properties'],
+          },
+        },
+        {
+          name: 'get_resource_properties',
+          description: 'Read the stored properties of a resource file as JSON',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              resourcePath: { type: 'string', description: 'Path to the resource (relative to project)' },
+            },
+            required: ['projectPath', 'resourcePath'],
+          },
+        },
       ],
     }));
 
@@ -958,6 +1498,77 @@ class GodotServer {
           return await this.handleGetUid(request.params.arguments);
         case 'update_project_uids':
           return await this.handleUpdateProjectUids(request.params.arguments);
+        // --- Phase 1: READ / inspect ---
+        case 'get_scene_tree':
+          return await this.handleGetSceneTree(request.params.arguments);
+        case 'get_node_properties':
+          return await this.handleGetNodeProperties(request.params.arguments);
+        case 'get_scene_dependencies':
+          return await this.handleGetSceneDependencies(request.params.arguments);
+        case 'describe_class':
+          return await this.handleDescribeClass(request.params.arguments);
+        case 'list_scripts':
+          return await this.handleListScripts(request.params.arguments);
+        case 'read_script':
+          return await this.handleReadScript(request.params.arguments);
+        // --- Phase 2: VALIDATE ---
+        case 'check_script':
+          return await this.handleCheckScript(request.params.arguments);
+        case 'validate_scene':
+          return await this.handleValidateScene(request.params.arguments);
+        case 'run_and_capture_errors':
+          return await this.handleRunAndCaptureErrors(request.params.arguments);
+        // --- Phase 3: EDIT / structural ---
+        case 'set_node_property':
+          return await this.handleSetNodeProperty(request.params.arguments);
+        case 'delete_node':
+          return await this.handleDeleteNode(request.params.arguments);
+        case 'rename_node':
+          return await this.handleRenameNode(request.params.arguments);
+        case 'reparent_node':
+          return await this.handleReparentNode(request.params.arguments);
+        case 'duplicate_node':
+          return await this.handleDuplicateNode(request.params.arguments);
+        case 'add_to_group':
+          return await this.handleAddToGroup(request.params.arguments);
+        case 'remove_from_group':
+          return await this.handleRemoveFromGroup(request.params.arguments);
+        // --- Phase 4: BEHAVIOR ---
+        case 'create_script':
+          return await this.handleCreateScript(request.params.arguments);
+        case 'attach_script':
+          return await this.handleAttachScript(request.params.arguments);
+        case 'connect_signal':
+          return await this.handleConnectSignal(request.params.arguments);
+        case 'disconnect_signal':
+          return await this.handleDisconnectSignal(request.params.arguments);
+        case 'list_connections':
+          return await this.handleListConnections(request.params.arguments);
+        case 'instance_scene':
+          return await this.handleInstanceScene(request.params.arguments);
+        // --- Phase 5: PROJECT settings + resources ---
+        case 'get_project_setting':
+          return await this.handleGetProjectSetting(request.params.arguments);
+        case 'set_project_setting':
+          return await this.handleSetProjectSetting(request.params.arguments);
+        case 'set_main_scene':
+          return await this.handleSetMainScene(request.params.arguments);
+        case 'list_autoloads':
+          return await this.handleListAutoloads(request.params.arguments);
+        case 'add_autoload':
+          return await this.handleAddAutoload(request.params.arguments);
+        case 'remove_autoload':
+          return await this.handleRemoveAutoload(request.params.arguments);
+        case 'add_input_action':
+          return await this.handleAddInputAction(request.params.arguments);
+        case 'remove_input_action':
+          return await this.handleRemoveInputAction(request.params.arguments);
+        case 'create_resource':
+          return await this.handleCreateResource(request.params.arguments);
+        case 'edit_resource':
+          return await this.handleEditResource(request.params.arguments);
+        case 'get_resource_properties':
+          return await this.handleGetResourceProperties(request.params.arguments);
         default:
           throw new McpError(
             ErrorCode.MethodNotFound,
@@ -2166,6 +2777,440 @@ class GodotServer {
         ]
       );
     }
+  }
+
+  // =========================================================================
+  // Extended toolset handlers
+  // =========================================================================
+
+  /**
+   * Shared dispatcher for GDScript-backed structured operations.
+   */
+  private async dispatchOp(
+    operation: string,
+    projectPath: string,
+    opParams: OperationParams,
+    summary: string,
+    extraPaths: string[] = []
+  ): Promise<any> {
+    const err = this.checkProject(projectPath, ...extraPaths);
+    if (err) return err;
+    try {
+      const { success, result, stderr, stdout } = await this.executeStructuredOperation(
+        operation,
+        opParams,
+        projectPath
+      );
+      if (!success) {
+        const detail = (stderr && stderr.trim()) || (stdout && stdout.trim()) || 'unknown error';
+        return this.createErrorResponse(`${operation} failed: ${detail}`, [
+          'Verify the scene/node/resource paths exist',
+          'Use get_scene_tree or describe_class to confirm names',
+        ]);
+      }
+      return this.structuredResponse(summary, result);
+    } catch (error: any) {
+      return this.createErrorResponse(`${operation} failed: ${error?.message || 'Unknown error'}`, [
+        'Ensure Godot is installed correctly and GODOT_PATH is set',
+        'Verify the project path is accessible',
+      ]);
+    }
+  }
+
+  private missing(...names: string[]): any {
+    return this.createErrorResponse(`Missing required parameter(s): ${names.join(', ')}`, [
+      `Provide: ${names.join(', ')}`,
+    ]);
+  }
+
+  // ----- Phase 1: READ / inspect -----
+
+  private async handleGetSceneTree(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    return this.dispatchOp('get_scene_tree', args.projectPath, { scenePath: args.scenePath },
+      `Scene tree for '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetNodeProperties(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('get_node_properties', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, mode: args.mode || 'overrides' },
+      `Properties of '${args.nodePath}' in '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleGetSceneDependencies(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    return this.dispatchOp('get_scene_dependencies', args.projectPath, { scenePath: args.scenePath },
+      `Dependencies of '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleDescribeClass(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.className) return this.missing('className');
+    if (!this.validateClassName(args.className)) {
+      return this.createErrorResponse('Invalid className', ['className must be a simple identifier (no paths or dots)']);
+    }
+    return this.dispatchOp('describe_class', args.projectPath, { classNameQuery: args.className },
+      `Class '${args.className}':`);
+  }
+
+  private async handleListScripts(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath, args.directory);
+    if (err) return err;
+    try {
+      const base = args.directory ? join(args.projectPath, args.directory) : args.projectPath;
+      const scripts: string[] = [];
+      const walk = (dir: string) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          if (entry.name.startsWith('.')) continue;
+          const full = join(dir, entry.name);
+          if (entry.isDirectory()) walk(full);
+          else if (entry.name.endsWith('.gd')) scripts.push(full.substring(args.projectPath.length).replace(/^[/\\]/, ''));
+        }
+      };
+      if (existsSync(base)) walk(base);
+      return this.structuredResponse(`Found ${scripts.length} script(s):`, scripts);
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to list scripts: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleReadScript(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scriptPath) return this.missing('scriptPath');
+    const err = this.checkProject(args.projectPath, args.scriptPath);
+    if (err) return err;
+    try {
+      const full = join(args.projectPath, args.scriptPath);
+      if (!existsSync(full)) return this.createErrorResponse(`Script not found: ${args.scriptPath}`, []);
+      const content = readFileSync(full, 'utf-8');
+      return { content: [{ type: 'text', text: content }] };
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to read script: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  // ----- Phase 2: VALIDATE / diagnostics -----
+
+  private async handleCheckScript(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scriptPath) return this.missing('scriptPath');
+    const err = this.checkProject(args.projectPath, args.scriptPath);
+    if (err) return err;
+    try {
+      if (!this.godotPath) {
+        await this.detectGodotPath();
+        if (!this.godotPath) throw new Error('Could not find a valid Godot executable path');
+      }
+      const scriptResPath = args.scriptPath.startsWith('res://') ? args.scriptPath : 'res://' + args.scriptPath;
+      const cmdArgs = ['--headless', '--path', args.projectPath, '--check-only', '--script', scriptResPath];
+      const { stdout, stderr, code } = await this.executeRaw(cmdArgs);
+      const combined = `${stdout}\n${stderr}`.trim();
+      const hasErrors = code !== 0 || /SCRIPT ERROR|Parse Error|ERROR/.test(combined);
+      return this.structuredResponse(
+        hasErrors ? `Parse check FAILED for '${args.scriptPath}':` : `Parse check OK for '${args.scriptPath}'.`,
+        { ok: !hasErrors, exitCode: code, output: combined }
+      );
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to check script: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleValidateScene(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    // validate_scene reports issues via the result payload; treat the op as
+    // "ran successfully" even when the scene itself is invalid.
+    const err = this.checkProject(args.projectPath, args.scenePath);
+    if (err) return err;
+    try {
+      const { result, stderr, stdout } = await this.executeStructuredOperation(
+        'validate_scene', { scenePath: args.scenePath }, args.projectPath
+      );
+      if (result === null) {
+        const detail = (stderr && stderr.trim()) || (stdout && stdout.trim()) || 'unknown error';
+        return this.createErrorResponse(`validate_scene failed: ${detail}`, []);
+      }
+      return this.structuredResponse(`Validation of '${args.scenePath}':`, result);
+    } catch (error: any) {
+      return this.createErrorResponse(`validate_scene failed: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleRunAndCaptureErrors(args: any) {
+    args = this.normalizeParameters(args);
+    const err = this.checkProject(args.projectPath, args.scene);
+    if (err) return err;
+    try {
+      if (!this.godotPath) {
+        await this.detectGodotPath();
+        if (!this.godotPath) throw new Error('Could not find a valid Godot executable path');
+      }
+      const seconds = typeof args.timeoutSeconds === 'number' ? args.timeoutSeconds : 5;
+      const cmdArgs = ['--headless', '--path', args.projectPath, '--quit-after', String(Math.max(1, Math.round(seconds * 60)))];
+      if (args.scene) cmdArgs.push(args.scene);
+      const { stdout, stderr, code } = await this.executeRaw(cmdArgs, (seconds + 30) * 1000);
+      const combined = `${stdout}\n${stderr}`;
+      const errorLines = combined.split('\n').filter((l) => /SCRIPT ERROR|ERROR|WARNING|Parse Error/i.test(l));
+      return this.structuredResponse(`Ran '${args.scene || 'main scene'}' for ~${seconds}s (exit ${code}):`, {
+        exitCode: code,
+        errorCount: errorLines.length,
+        errors: errorLines.slice(0, 200),
+        stdoutTail: stdout.split('\n').slice(-50).join('\n'),
+      });
+    } catch (error: any) {
+      return this.createErrorResponse(`run_and_capture_errors failed: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  /**
+   * Run Godot with raw args (not via the ops script). Returns exit code too.
+   */
+  private async executeRaw(args: string[], timeoutMs: number = OPERATION_TIMEOUT_MS): Promise<{ stdout: string; stderr: string; code: number }> {
+    if (!this.godotPath) {
+      await this.detectGodotPath();
+      if (!this.godotPath) throw new Error('Could not find a valid Godot executable path');
+    }
+    try {
+      const { stdout, stderr } = await execFileAsync(this.godotPath!, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024 * 32 });
+      return { stdout: stdout ?? '', stderr: stderr ?? '', code: 0 };
+    } catch (error: unknown) {
+      if (error instanceof Error && 'stdout' in error && 'stderr' in error) {
+        const e = error as Error & { stdout: string; stderr: string; code?: number; killed?: boolean };
+        if (e.killed) throw new Error(`Godot timed out after ${timeoutMs}ms`);
+        return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', code: typeof e.code === 'number' ? e.code : 1 };
+      }
+      throw error;
+    }
+  }
+
+  // ----- Phase 3: EDIT / structural -----
+
+  private async handleSetNodeProperty(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.property || args.value === undefined) {
+      return this.missing('scenePath', 'nodePath', 'property', 'value');
+    }
+    return this.dispatchOp('set_node_property', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, property: args.property, value: args.value },
+      `Set '${args.property}' on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleDeleteNode(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    return this.dispatchOp('delete_node', args.projectPath, { scenePath: args.scenePath, nodePath: args.nodePath },
+      `Deleted '${args.nodePath}' from '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleRenameNode(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.newName) return this.missing('scenePath', 'nodePath', 'newName');
+    return this.dispatchOp('rename_node', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, newName: args.newName },
+      `Renamed '${args.nodePath}' to '${args.newName}':`, [args.scenePath]);
+  }
+
+  private async handleReparentNode(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || args.newParentPath === undefined) {
+      return this.missing('scenePath', 'nodePath', 'newParentPath');
+    }
+    return this.dispatchOp('reparent_node', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, newParentPath: args.newParentPath, keepGlobalTransform: args.keepGlobalTransform !== false },
+      `Reparented '${args.nodePath}' under '${args.newParentPath}':`, [args.scenePath]);
+  }
+
+  private async handleDuplicateNode(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined) return this.missing('scenePath', 'nodePath');
+    const opParams: OperationParams = { scenePath: args.scenePath, nodePath: args.nodePath };
+    if (args.newName) opParams.newName = args.newName;
+    return this.dispatchOp('duplicate_node', args.projectPath, opParams,
+      `Duplicated '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleAddToGroup(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.group) return this.missing('scenePath', 'nodePath', 'group');
+    return this.dispatchOp('add_to_group', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, group: args.group },
+      `Added '${args.nodePath}' to group '${args.group}':`, [args.scenePath]);
+  }
+
+  private async handleRemoveFromGroup(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.group) return this.missing('scenePath', 'nodePath', 'group');
+    return this.dispatchOp('remove_from_group', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, group: args.group },
+      `Removed '${args.nodePath}' from group '${args.group}':`, [args.scenePath]);
+  }
+
+  // ----- Phase 4: BEHAVIOR -----
+
+  private async handleCreateScript(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scriptPath) return this.missing('scriptPath');
+    const err = this.checkProject(args.projectPath, args.scriptPath);
+    if (err) return err;
+    try {
+      const full = join(args.projectPath, args.scriptPath);
+      if (existsSync(full) && !args.overwrite) {
+        return this.createErrorResponse(`Script already exists: ${args.scriptPath}`, ['Pass overwrite: true to replace it']);
+      }
+      let content: string;
+      if (args.content) {
+        content = args.content;
+      } else {
+        const base = args.extends || 'Node';
+        const header = args.className ? `class_name ${args.className}\nextends ${base}\n` : `extends ${base}\n`;
+        content = `${header}\n\nfunc _ready() -> void:\n\tpass\n`;
+      }
+      const dir = dirname(full);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(full, content, 'utf-8');
+      return this.structuredResponse(`Created script '${args.scriptPath}'.`, { path: args.scriptPath, bytes: content.length });
+    } catch (error: any) {
+      return this.createErrorResponse(`Failed to create script: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleAttachScript(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.scriptPath) return this.missing('scenePath', 'nodePath', 'scriptPath');
+    return this.dispatchOp('attach_script', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, scriptPath: args.scriptPath },
+      `Attached '${args.scriptPath}' to '${args.nodePath}':`, [args.scenePath, args.scriptPath]);
+  }
+
+  private async handleConnectSignal(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.fromNode === undefined || !args.signalName || args.toNode === undefined || !args.method) {
+      return this.missing('scenePath', 'fromNode', 'signalName', 'toNode', 'method');
+    }
+    return this.dispatchOp('connect_signal', args.projectPath,
+      { scenePath: args.scenePath, fromNode: args.fromNode, signalName: args.signalName, toNode: args.toNode, method: args.method },
+      `Connected '${args.signalName}' (${args.fromNode} -> ${args.toNode}.${args.method}):`, [args.scenePath]);
+  }
+
+  private async handleDisconnectSignal(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.fromNode === undefined || !args.signalName || args.toNode === undefined || !args.method) {
+      return this.missing('scenePath', 'fromNode', 'signalName', 'toNode', 'method');
+    }
+    return this.dispatchOp('disconnect_signal', args.projectPath,
+      { scenePath: args.scenePath, fromNode: args.fromNode, signalName: args.signalName, toNode: args.toNode, method: args.method },
+      `Disconnected '${args.signalName}':`, [args.scenePath]);
+  }
+
+  private async handleListConnections(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    return this.dispatchOp('list_connections', args.projectPath, { scenePath: args.scenePath },
+      `Connections in '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleInstanceScene(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.instanceScenePath) return this.missing('scenePath', 'instanceScenePath');
+    const opParams: OperationParams = {
+      scenePath: args.scenePath,
+      instanceScenePath: args.instanceScenePath,
+      parentNodePath: args.parentNodePath || '',
+    };
+    if (args.nodeName) opParams.nodeName = args.nodeName;
+    return this.dispatchOp('instance_scene', args.projectPath, opParams,
+      `Instanced '${args.instanceScenePath}' into '${args.scenePath}':`, [args.scenePath, args.instanceScenePath]);
+  }
+
+  // ----- Phase 5: PROJECT settings + resources -----
+
+  private async handleGetProjectSetting(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.setting) return this.missing('setting');
+    return this.dispatchOp('get_project_setting', args.projectPath, { setting: args.setting },
+      `Setting '${args.setting}':`);
+  }
+
+  private async handleSetProjectSetting(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.setting || args.value === undefined) return this.missing('setting', 'value');
+    return this.dispatchOp('set_project_setting', args.projectPath, { setting: args.setting, value: args.value },
+      `Set '${args.setting}':`);
+  }
+
+  private async handleSetMainScene(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    const scene = args.scenePath.startsWith('res://') ? args.scenePath : 'res://' + args.scenePath;
+    return this.dispatchOp('set_project_setting', args.projectPath,
+      { setting: 'application/run/main_scene', value: scene },
+      `Set main scene to '${scene}':`, [args.scenePath]);
+  }
+
+  private async handleListAutoloads(args: any) {
+    args = this.normalizeParameters(args);
+    return this.dispatchOp('list_autoloads', args.projectPath, {}, 'Autoloads:');
+  }
+
+  private async handleAddAutoload(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.autoloadName || !args.path) return this.missing('autoloadName', 'path');
+    return this.dispatchOp('add_autoload', args.projectPath,
+      { autoloadName: args.autoloadName, path: args.path, enabled: args.enabled !== false },
+      `Added autoload '${args.autoloadName}':`, [args.path]);
+  }
+
+  private async handleRemoveAutoload(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.autoloadName) return this.missing('autoloadName');
+    return this.dispatchOp('remove_autoload', args.projectPath, { autoloadName: args.autoloadName },
+      `Removed autoload '${args.autoloadName}':`);
+  }
+
+  private async handleAddInputAction(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.action || !args.events) return this.missing('action', 'events');
+    return this.dispatchOp('add_input_action', args.projectPath,
+      { action: args.action, events: args.events, deadzone: args.deadzone, replace: args.replace === true },
+      `Added input action '${args.action}':`);
+  }
+
+  private async handleRemoveInputAction(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.action) return this.missing('action');
+    return this.dispatchOp('remove_input_action', args.projectPath, { action: args.action },
+      `Removed input action '${args.action}':`);
+  }
+
+  private async handleCreateResource(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.resourcePath || !args.resourceClass) return this.missing('resourcePath', 'resourceClass');
+    if (!this.validateClassName(args.resourceClass)) {
+      return this.createErrorResponse('Invalid resourceClass', ['resourceClass must be a simple class name']);
+    }
+    return this.dispatchOp('create_resource', args.projectPath,
+      { resourcePath: args.resourcePath, resourceClass: args.resourceClass, properties: args.properties || {} },
+      `Created resource '${args.resourcePath}':`, [args.resourcePath]);
+  }
+
+  private async handleEditResource(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.resourcePath || !args.properties) return this.missing('resourcePath', 'properties');
+    return this.dispatchOp('edit_resource', args.projectPath,
+      { resourcePath: args.resourcePath, properties: args.properties },
+      `Edited resource '${args.resourcePath}':`, [args.resourcePath]);
+  }
+
+  private async handleGetResourceProperties(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.resourcePath) return this.missing('resourcePath');
+    return this.dispatchOp('get_resource_properties', args.projectPath, { resourcePath: args.resourcePath },
+      `Properties of '${args.resourcePath}':`, [args.resourcePath]);
   }
 
   /**
