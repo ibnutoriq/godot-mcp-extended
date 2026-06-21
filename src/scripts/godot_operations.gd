@@ -52,7 +52,9 @@ func _init():
         log_error("JSON Error: " + json.get_error_message() + " at line " + str(json.get_error_line()))
         quit(1)
     
-    if not params:
+    # Note: an empty Dictionary ({}) is falsy in GDScript, so test for null
+    # explicitly — operations that take no parameters pass "{}" legitimately.
+    if params == null:
         log_error("Failed to parse JSON parameters: " + params_json)
         quit(1)
     
@@ -139,6 +141,26 @@ func _init():
             edit_resource(params)
         "get_resource_properties":
             get_resource_properties(params)
+        # --- Performance: single-boot multi-op ---
+        "batch":
+            batch(params)
+        "build_scene":
+            build_scene(params)
+        # --- Capability breadth ---
+        "find_nodes":
+            find_nodes(params)
+        "list_classes":
+            list_classes(params)
+        "path_to_uid":
+            path_to_uid(params)
+        "find_broken_references":
+            find_broken_references(params)
+        "create_animation":
+            create_animation(params)
+        "set_node_properties":
+            set_node_properties(params)
+        "reorder_node":
+            reorder_node(params)
         _:
             log_error("Unknown operation: " + operation)
             quit(1)
@@ -167,13 +189,23 @@ func log_error(message):
 # ---------------------------------------------------------------------------
 const RESULT_PREFIX = "__RESULT__"
 
+# When capturing (inside a batch), ops record their result/error into
+# _last_result instead of printing, so the batch driver can collect them and
+# emit a single aggregate __RESULT__ line.
+var _capture = false
+var _last_result = null
+
 func fail(message):
     exit_code = 1
-    printerr("[ERROR] Failed to " + message)
+    _last_result = {"error": "Failed to " + message}
+    if not _capture:
+        printerr("[ERROR] Failed to " + message)
 
 # Emit a structured JSON result for the server to parse.
 func emit_result(data):
-    print(RESULT_PREFIX + JSON.stringify(data))
+    _last_result = data
+    if not _capture:
+        print(RESULT_PREFIX + JSON.stringify(data))
 
 # Load a scene file and return its instantiated root, or null on failure.
 # Reports a standardized error through fail() so callers can simply bail.
@@ -767,12 +799,10 @@ func add_node(params):
         for property in properties:
             if debug_mode:
                 print("Setting property: " + property + " = " + str(properties[property]))
-            var value = properties[property]
-            if typeof(value) == TYPE_STRING and value.begins_with("res://"):
-                value = load(value)
-                if debug_mode:
-                    print("Loaded resource for property: " + property + " -> " + str(value))
-            new_node.set(property, value)
+            # Coerce JSON values into the property's Godot type so vectors,
+            # colors, enums, NodePaths and res:// resources work at creation
+            # time (previously only set_node_property did this).
+            new_node.set(property, coerce_value(new_node, property, properties[property]))
     
     parent.add_child(new_node)
     new_node.owner = scene_root
@@ -2272,3 +2302,341 @@ func run_scene_test(params):
         "results": results,
         "log": logs,
     })
+
+# ===========================================================================
+# Performance: single-boot multi-operation
+#
+# Each tool call normally spawns a fresh headless Godot (~1-3s boot). batch and
+# build_scene amortize that cost by doing many things inside one process.
+# ===========================================================================
+
+# Route a single structured (quit-free) operation by name. Only operations that
+# report via fail()/emit_result() (never quit()) are batchable; the legacy ops
+# and the async run_scene_test are intentionally excluded.
+func _dispatch_structured(op, params):
+    match op:
+        "get_scene_tree": get_scene_tree(params)
+        "get_node_properties": get_node_properties(params)
+        "get_scene_dependencies": get_scene_dependencies(params)
+        "describe_class": describe_class(params)
+        "validate_scene": validate_scene(params)
+        "set_node_property": set_node_property_op(params)
+        "set_node_properties": set_node_properties(params)
+        "delete_node": delete_node(params)
+        "rename_node": rename_node(params)
+        "reparent_node": reparent_node(params)
+        "duplicate_node": duplicate_node(params)
+        "reorder_node": reorder_node(params)
+        "add_to_group": add_to_group_op(params)
+        "remove_from_group": remove_from_group_op(params)
+        "attach_script": attach_script(params)
+        "connect_signal": connect_signal_op(params)
+        "disconnect_signal": disconnect_signal_op(params)
+        "list_connections": list_connections(params)
+        "instance_scene": instance_scene(params)
+        "get_project_setting": get_project_setting_op(params)
+        "set_project_setting": set_project_setting_op(params)
+        "list_autoloads": list_autoloads(params)
+        "add_autoload": add_autoload(params)
+        "remove_autoload": remove_autoload(params)
+        "add_input_action": add_input_action(params)
+        "remove_input_action": remove_input_action(params)
+        "create_resource": create_resource(params)
+        "edit_resource": edit_resource(params)
+        "get_resource_properties": get_resource_properties(params)
+        "build_scene": build_scene(params)
+        "find_nodes": find_nodes(params)
+        "list_classes": list_classes(params)
+        "path_to_uid": path_to_uid(params)
+        "find_broken_references": find_broken_references(params)
+        "create_animation": create_animation(params)
+        _:
+            fail("batch: unknown or non-batchable operation: " + str(op))
+
+# Run a list of operations in a single process. Each entry is
+# {"operation": "...", "params": {...}}. By default the batch stops at the
+# first failure; pass "stop_on_error": false to run them all.
+func batch(params):
+    var ops = params.get("operations", [])
+    var stop_on_error = params.get("stop_on_error", true)
+    var results = []
+    _capture = true
+    for idx in ops.size():
+        var entry = ops[idx]
+        var op = str(entry.get("operation", entry.get("op", "")))
+        var p = entry.get("params", {})
+        exit_code = 0
+        _last_result = null
+        _dispatch_structured(op, p)
+        var ok = exit_code == 0
+        results.append({"index": idx, "operation": op, "ok": ok, "result": _last_result})
+        if not ok and stop_on_error:
+            break
+    _capture = false
+    var all_ok = true
+    var ran = results.size()
+    for r in results:
+        if not r["ok"]:
+            all_ok = false
+    # Process exit code reflects the batch as a whole; per-op status is in the payload.
+    exit_code = 0 if all_ok else 1
+    emit_result({
+        "batch": true,
+        "requested": ops.size(),
+        "ran": ran,
+        "all_ok": all_ok,
+        "results": results,
+    })
+
+# ---------------------------------------------------------------------------
+# build_scene: construct an entire scene tree from a nested spec in one boot.
+# spec.root is a node spec; each node spec may carry:
+#   type | instance, name, script, properties{}, groups[], children[]
+# spec.signals[] = [{from, signal, to, method}] is applied after the tree exists.
+# ---------------------------------------------------------------------------
+func build_scene(params):
+    var scene_path = _res_path(params.scene_path)
+    var root_spec = params.get("root", null)
+    if root_spec == null or typeof(root_spec) != TYPE_DICTIONARY:
+        fail("build_scene: missing 'root' node spec")
+        return
+    var root = _build_node(root_spec, null)
+    if root == null:
+        return  # _build_node already called fail()
+    if not root_spec.has("name"):
+        root.name = "root"
+    for sig in params.get("signals", []):
+        var fnode = resolve_node(root, sig.get("from", ""))
+        var tnode = resolve_node(root, sig.get("to", ""))
+        var sname = str(sig.get("signal", sig.get("signal_name", "")))
+        if fnode != null and tnode != null and fnode.has_signal(sname):
+            fnode.connect(sname, Callable(tnode, str(sig.get("method", ""))), CONNECT_PERSIST)
+    if save_scene_tree(root, scene_path):
+        emit_result({"scene": scene_path, "node_count": _count_nodes(root)})
+    root.free()
+
+func _build_node(spec, parent):
+    var node = null
+    if spec.has("instance") and spec.instance != null and str(spec.instance) != "":
+        var ip = _res_path(spec.instance)
+        if not ResourceLoader.exists(ip):
+            fail("build_scene: instance scene does not exist: " + ip)
+            return null
+        var packed = load(ip)
+        if packed == null or not (packed is PackedScene):
+            fail("build_scene: not a valid PackedScene: " + ip)
+            return null
+        node = packed.instantiate()
+    else:
+        var t = str(spec.get("type", "Node"))
+        node = instantiate_class(t)
+        if node == null:
+            fail("build_scene: cannot instantiate type: " + t)
+            return null
+    if spec.has("name") and spec.name != null:
+        node.name = str(spec.name)
+    if spec.has("script") and spec.script != null and str(spec.script) != "":
+        var sp = _res_path(spec.script)
+        if ResourceLoader.exists(sp):
+            var scr = load(sp)
+            if scr is Script:
+                node.set_script(scr)
+        else:
+            fail("build_scene: script does not exist: " + sp)
+            return null
+    for prop in spec.get("properties", {}):
+        node.set(prop, coerce_value(node, prop, spec.properties[prop]))
+    for g in spec.get("groups", []):
+        node.add_to_group(str(g), true)
+    if parent != null:
+        parent.add_child(node)
+    for child_spec in spec.get("children", []):
+        var c = _build_node(child_spec, node)
+        if c == null:
+            return null
+    return node
+
+func _count_nodes(node):
+    var n = 1
+    for child in node.get_children():
+        n += _count_nodes(child)
+    return n
+
+# ===========================================================================
+# Capability breadth
+# ===========================================================================
+
+# Find nodes in a scene by type (class, inheritance-aware), group and/or a
+# wildcard name pattern. Any combination of filters may be supplied.
+func find_nodes(params):
+    var scene_path = _res_path(params.scene_path)
+    var root = load_scene_root(scene_path)
+    if root == null:
+        return
+    var matches = []
+    _find_nodes_rec(root, root, params, matches)
+    emit_result({"scene": scene_path, "count": matches.size(), "matches": matches})
+    root.free()
+
+func _find_nodes_rec(node, root, params, out):
+    var ok = true
+    var want_type = str(params.get("type", ""))
+    if want_type != "":
+        if not (node.is_class(want_type) or node.get_class() == want_type):
+            ok = false
+    if ok:
+        var want_group = str(params.get("group", ""))
+        if want_group != "" and not node.is_in_group(want_group):
+            ok = false
+    if ok:
+        var pattern = str(params.get("name_pattern", ""))
+        if pattern != "" and not str(node.name).matchn(pattern):
+            ok = false
+    if ok:
+        out.append({
+            "path": str(root.get_path_to(node)),
+            "name": str(node.name),
+            "type": node.get_class(),
+            "groups": node.get_groups(),
+        })
+    for child in node.get_children():
+        _find_nodes_rec(child, root, params, out)
+
+# List engine classes from ClassDB, optionally filtered by a name substring
+# and/or restricted to descendants of a base class.
+func list_classes(params):
+    var filter = str(params.get("filter", "")).to_lower()
+    var inherits = str(params.get("inherits", ""))
+    var out = []
+    for c in ClassDB.get_class_list():
+        if filter != "" and not c.to_lower().contains(filter):
+            continue
+        if inherits != "" and not (c == inherits or ClassDB.is_parent_class(c, inherits)):
+            continue
+        out.append(c)
+    out.sort()
+    emit_result({"count": out.size(), "filter": str(params.get("filter", "")), "inherits": inherits, "classes": out})
+
+# Resolve a file's resource UID (uid://...) — the reverse of get_uid.
+func path_to_uid(params):
+    var fp = _res_path(params.file_path)
+    if not (ResourceLoader.exists(fp) or FileAccess.file_exists(fp)):
+        fail("path_to_uid: file does not exist: " + fp)
+        return
+    var id = ResourceLoader.get_resource_uid(fp)
+    if id == ResourceUID.INVALID_ID:
+        emit_result({"file": fp, "exists": true, "uid": null, "message": "No UID assigned. Run update_project_uids to generate one."})
+        return
+    emit_result({"file": fp, "exists": true, "uid": ResourceUID.id_to_text(id)})
+
+# Scan scenes/resources under a directory and report references to files that
+# no longer exist (dangling ext_resource / stale UID paths).
+func find_broken_references(params):
+    var dir = _res_path(params.get("directory", "res://"))
+    if not dir.ends_with("/"):
+        dir += "/"
+    var files = find_files(dir, ".tscn")
+    files.append_array(find_files(dir, ".scn"))
+    files.append_array(find_files(dir, ".tres"))
+    files.append_array(find_files(dir, ".res"))
+    var broken = []
+    for f in files:
+        for d in ResourceLoader.get_dependencies(f):
+            var parts = str(d).split("::")
+            var p = parts[parts.size() - 1]
+            if p == "":
+                continue
+            if not (ResourceLoader.exists(p) or FileAccess.file_exists(p)):
+                broken.append({"file": f, "missing": p, "raw": str(d)})
+    emit_result({"scanned": files.size(), "broken_count": broken.size(), "broken": broken})
+
+# Best-effort JSON->Variant coercion when no declared property type is known
+# (used for animation key values).
+func _generic_coerce(value):
+    if typeof(value) == TYPE_STRING and value.begins_with("res://"):
+        var r = load(value)
+        if r != null:
+            return r
+    if typeof(value) == TYPE_ARRAY:
+        var a = _num_array(value)
+        if a.size() == 2:
+            return Vector2(a[0], a[1])
+        elif a.size() == 3:
+            return Vector3(a[0], a[1], a[2])
+        elif a.size() == 4:
+            return Color(a[0], a[1], a[2], a[3])
+    return value
+
+# Create a value-track Animation on an AnimationPlayer and store it in one of
+# its animation libraries. tracks = [{path: "Node:property", keys: [{time,value}]}].
+func create_animation(params):
+    var scene_path = _res_path(params.scene_path)
+    var root = load_scene_root(scene_path)
+    if root == null:
+        return
+    var player = resolve_node(root, params.get("player_node", ""))
+    if player == null or not (player is AnimationPlayer):
+        fail("create_animation: AnimationPlayer not found at: " + str(params.get("player_node", "")))
+        root.free()
+        return
+    var anim = Animation.new()
+    anim.length = float(params.get("length", 1.0))
+    if params.get("loop", false):
+        anim.loop_mode = Animation.LOOP_LINEAR
+    for track in params.get("tracks", []):
+        var ti = anim.add_track(Animation.TYPE_VALUE)
+        anim.track_set_path(ti, NodePath(str(track.get("path", ""))))
+        for key in track.get("keys", []):
+            anim.track_insert_key(ti, float(key.get("time", 0.0)), _generic_coerce(key.get("value")))
+    var lib_name = str(params.get("library", ""))
+    var lib = null
+    if player.has_animation_library(lib_name):
+        lib = player.get_animation_library(lib_name)
+    else:
+        lib = AnimationLibrary.new()
+        player.add_animation_library(lib_name, lib)
+    var anim_name = str(params.get("name", "new_animation"))
+    if lib.has_animation(anim_name):
+        lib.remove_animation(anim_name)
+    lib.add_animation(anim_name, anim)
+    if save_scene_tree(root, scene_path):
+        emit_result({"scene": scene_path, "player": str(params.get("player_node", "")), "animation": anim_name, "tracks": anim.get_track_count(), "length": anim.length})
+    root.free()
+
+# Set several properties on one node in a single load/save.
+func set_node_properties(params):
+    var scene_path = _res_path(params.scene_path)
+    var root = load_scene_root(scene_path)
+    if root == null:
+        return
+    var node = resolve_node(root, params.node_path)
+    if node == null:
+        fail("find node: " + str(params.node_path))
+        root.free()
+        return
+    var changed = []
+    for prop in params.get("properties", {}):
+        node.set(prop, coerce_value(node, prop, params.properties[prop]))
+        changed.append(prop)
+    if save_scene_tree(root, scene_path):
+        emit_result({"scene": scene_path, "node": str(params.node_path), "set": changed})
+    root.free()
+
+# Move a node to a different index among its siblings.
+func reorder_node(params):
+    var scene_path = _res_path(params.scene_path)
+    var root = load_scene_root(scene_path)
+    if root == null:
+        return
+    var node = resolve_node(root, params.node_path)
+    if node == null or node == root:
+        fail("reorder: node not found or is the scene root: " + str(params.node_path))
+        root.free()
+        return
+    var parent = node.get_parent()
+    var idx = int(params.get("to_index", 0))
+    idx = clamp(idx, 0, parent.get_child_count() - 1)
+    parent.move_child(node, idx)
+    if save_scene_tree(root, scene_path):
+        emit_result({"scene": scene_path, "node": str(params.node_path), "index": node.get_index()})
+    root.free()

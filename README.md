@@ -54,7 +54,7 @@ A Model Context Protocol (MCP) server for interacting with the Godot game engine
 
 Godot MCP enables AI agents to launch the Godot editor, run projects, capture debug output, and control project execution. This direct feedback loop helps agents understand what works and what doesn't in real Godot projects, leading to better code generation and debugging assistance.
 
-> This project (`godot-mcp-extended`) builds on the original [godot-mcp](https://github.com/Coding-Solo/godot-mcp) by Solomon Elias (MIT), adding a full inspect → edit → validate → e2e toolset (50 tools total).
+> This project (`godot-mcp-extended`) builds on the original [godot-mcp](https://github.com/Coding-Solo/godot-mcp) by Solomon Elias (MIT), adding a full inspect → edit → validate → e2e toolset (60 tools total).
 
 ## Features
 
@@ -102,6 +102,19 @@ The server exposes a full **inspect → mutate → validate** loop so an agent c
   - `list_autoloads` / `add_autoload` / `remove_autoload`
   - `add_input_action` / `remove_input_action`
   - `create_resource` / `edit_resource` / `get_resource_properties`
+- **Performance — single-boot multi-op**: every tool normally spawns a fresh headless Godot (~1–3s boot), so a scene built from ~20 calls pays ~20 cold boots. These collapse that into **one** process (~15–30× faster):
+  - `batch` — run an array of `{operation, params}` through one Godot process; returns per-op `ok`/`result`, stops at the first failure unless `stopOnError: false`
+  - `build_scene` — construct a whole scene tree from a nested spec (`type`/`instance`, `name`, `script`, `properties`, `groups`, `children`, plus `signals[]`) and save once
+  - `set_node_properties` — set many properties on a node in one load/save
+- **Discovery & diagnostics**:
+  - `find_nodes` — search a scene by type (inheritance-aware), group, and/or wildcard name pattern
+  - `list_classes` — list ClassDB classes, filtered by substring and/or base class
+  - `path_to_uid` — resolve a file to its `uid://` (reverse of `get_uid`)
+  - `find_broken_references` — scan scenes/resources for references to files that no longer exist
+  - `reorder_node` — move a node among its siblings (draw/child order)
+- **Animation & build**:
+  - `create_animation` — author a value-track `Animation` on an `AnimationPlayer` (keyframes from JSON)
+  - `export_project` — export via a configured preset (`--export-release`/`--export-debug`) to complete the build pipeline
 
 ### Automated e2e / UAT
 
@@ -285,6 +298,18 @@ The Godot MCP server uses a bundled GDScript approach for complex operations:
 2. **Bundled Operations Script**: Complex operations like creating scenes or adding nodes use a single, comprehensive GDScript file (`godot_operations.gd`) that handles all operations.
 
 The bundled script accepts operation type and parameters as JSON, allowing for flexible and dynamic operation execution without generating temporary files for each operation.
+
+## Development & tests
+
+An end-to-end test harness spins up the compiled server over stdio against a throwaway Godot project and exercises a representative slice of the toolset (scene construction, batched edits, inspection, validation, animation, diagnostics, and path-traversal rejection). Each assertion runs a real headless Godot process.
+
+```bash
+npm test            # builds, then runs test/integration.test.mjs
+# or, with an explicit binary:
+GODOT_PATH=/path/to/godot npm test
+```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same suite on every push/PR across multiple Godot 4.x versions, guarding all tools against engine version bumps.
 
 ## Troubleshooting
 

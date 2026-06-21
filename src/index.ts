@@ -112,6 +112,14 @@ class GodotServer {
     'timeout_seconds': 'timeoutSeconds',
     'test_path': 'testPath',
     'wait_frames': 'waitFrames',
+    // Performance + capability toolset params
+    'stop_on_error': 'stopOnError',
+    'name_pattern': 'namePattern',
+    'to_index': 'toIndex',
+    'player_node': 'playerNode',
+    'preset_name': 'presetName',
+    'export_path': 'exportPath',
+    'debug_export': 'debugExport',
   };
 
   /**
@@ -228,12 +236,35 @@ class GodotServer {
    * Validate a path to prevent path traversal attacks
    */
   private validatePath(path: string): boolean {
-    // Basic validation to prevent path traversal
-    if (!path || path.includes('..')) {
+    // Basic validation to prevent path traversal and null-byte injection.
+    if (!path || path.includes('..') || path.includes('\0')) {
       return false;
     }
 
     // Add more validation as needed
+    return true;
+  }
+
+  /**
+   * Validate a path that must stay *inside* the Godot project (scenes, scripts,
+   * resources, textures, output files). Stricter than validatePath: in addition
+   * to blocking ".." traversal and null bytes, it rejects absolute filesystem
+   * paths and user:// so that writes initiated by tools cannot escape the
+   * project. A leading "res://" is allowed and treated as project-relative.
+   */
+  private validateResourcePath(path: string): boolean {
+    if (!path || path.includes('..') || path.includes('\0')) {
+      return false;
+    }
+    // user:// points outside the project tree; reject for write-safety.
+    if (path.startsWith('user://')) {
+      return false;
+    }
+    const stripped = path.startsWith('res://') ? path.slice('res://'.length) : path;
+    // Absolute POSIX path or Windows drive path escapes the project.
+    if (stripped.startsWith('/') || stripped.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(stripped)) {
+      return false;
+    }
     return true;
   }
 
@@ -614,9 +645,17 @@ class GodotServer {
     if (!projectPath) {
       return this.createErrorResponse('Missing required parameter: projectPath', ['Provide a projectPath']);
     }
-    for (const p of [projectPath, ...paths]) {
-      if (p && !this.validatePath(p)) {
-        return this.createErrorResponse('Invalid path', ['Provide valid paths without ".." segments']);
+    if (!this.validatePath(projectPath)) {
+      return this.createErrorResponse('Invalid projectPath', ['Provide a valid path without ".." segments or null bytes']);
+    }
+    // The remaining paths are project-relative resource paths; hold them to the
+    // stricter standard so tool-initiated writes stay inside the project.
+    for (const p of paths) {
+      if (p && !this.validateResourcePath(p)) {
+        return this.createErrorResponse(`Invalid path: ${p}`, [
+          'Use a project-relative path (or res://...) without ".." segments',
+          'Absolute paths and user:// are not allowed for project resources',
+        ]);
       }
     }
     const projectFile = join(projectPath, 'project.godot');
@@ -1527,6 +1566,167 @@ class GodotServer {
             required: ['projectPath', 'scenePath'],
           },
         },
+        // ===== Performance: single-boot multi-op =====
+        {
+          name: 'batch',
+          description:
+            'Run many operations in ONE headless Godot process instead of one process per call (~15-30x faster for multi-step edits). ' +
+            'operations is an array of {operation, params}. Batchable operations are the structured editing/inspection tools: ' +
+            'set_node_property, set_node_properties, delete_node, rename_node, reparent_node, duplicate_node, reorder_node, add_to_group, remove_from_group, ' +
+            'attach_script, connect_signal, disconnect_signal, instance_scene, create_resource, edit_resource, build_scene, find_nodes, create_animation, ' +
+            'get_scene_tree, get_node_properties, validate_scene, and the project-setting/autoload/input ops. ' +
+            'Each op params object uses the same fields as the standalone tool (camelCase or snake_case accepted). ' +
+            'Returns per-operation ok/result. Stops at the first failure unless stopOnError is false.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              operations: {
+                type: 'array',
+                description: 'Ordered list of {operation, params} objects',
+                items: { type: 'object' },
+              },
+              stopOnError: { type: 'boolean', description: 'Stop at the first failing operation (default true)' },
+            },
+            required: ['projectPath', 'operations'],
+          },
+        },
+        {
+          name: 'build_scene',
+          description:
+            'Construct an entire scene tree in a SINGLE process from a nested spec, then save once. ' +
+            'root is a node spec: {type | instance, name, script, properties{}, groups[], children[]}. ' +
+            '"type" is a Godot class (e.g. Node2D); "instance" is a res:// scene to instance instead. ' +
+            'children is an array of the same node-spec shape. Optional signals[] = [{from, signal, to, method}] (node paths relative to root) ' +
+            'are connected after the tree is built. Far faster than create_scene + repeated add_node calls.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path where the scene (.tscn) will be saved (relative to project)' },
+              root: { type: 'object', description: 'Root node spec (see description)' },
+              signals: { type: 'array', description: 'Optional signal connections to wire up', items: { type: 'object' } },
+            },
+            required: ['projectPath', 'scenePath', 'root'],
+          },
+        },
+        // ===== Capability breadth =====
+        {
+          name: 'find_nodes',
+          description: 'Search a scene for nodes by type (class, inheritance-aware), group, and/or a wildcard name pattern (e.g. "Enemy*"). Returns matching node paths.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              type: { type: 'string', description: 'Match nodes of this class or a subclass (e.g. Node2D)' },
+              group: { type: 'string', description: 'Match nodes in this group' },
+              namePattern: { type: 'string', description: 'Wildcard name pattern (case-insensitive, e.g. "Coin*")' },
+            },
+            required: ['projectPath', 'scenePath'],
+          },
+        },
+        {
+          name: 'list_classes',
+          description: 'List Godot engine classes from ClassDB, optionally filtered by a name substring and/or restricted to descendants of a base class.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              filter: { type: 'string', description: 'Optional case-insensitive substring to match in class names' },
+              inherits: { type: 'string', description: 'Optional base class; only its descendants are returned' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'path_to_uid',
+          description: 'Resolve a project file to its resource UID (uid://...). The reverse of get_uid. Requires Godot 4.4+.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              filePath: { type: 'string', description: 'Path to the file (relative to project)' },
+            },
+            required: ['projectPath', 'filePath'],
+          },
+        },
+        {
+          name: 'find_broken_references',
+          description: 'Scan scenes and resources under a directory and report references to files that no longer exist (dangling ext_resource / stale UID paths). A project-wide safety net.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              directory: { type: 'string', description: 'Subdirectory to scan (relative to project, default whole project)' },
+            },
+            required: ['projectPath'],
+          },
+        },
+        {
+          name: 'create_animation',
+          description:
+            'Create a value-track Animation on an AnimationPlayer node and store it in one of its libraries. ' +
+            'tracks = [{path: "NodePath:property", keys: [{time, value}]}]. Key values may be numbers, strings, or arrays ([x,y]->Vector2, [x,y,z]->Vector3, [r,g,b,a]->Color).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              playerNode: { type: 'string', description: 'Path to the AnimationPlayer node within the scene' },
+              name: { type: 'string', description: 'Animation name (default new_animation)' },
+              length: { type: 'number', description: 'Animation length in seconds (default 1.0)' },
+              loop: { type: 'boolean', description: 'Loop the animation (default false)' },
+              library: { type: 'string', description: 'Animation library name (default "")' },
+              tracks: { type: 'array', description: 'Track specs (see description)', items: { type: 'object' } },
+            },
+            required: ['projectPath', 'scenePath', 'playerNode', 'name', 'tracks'],
+          },
+        },
+        {
+          name: 'set_node_properties',
+          description: 'Set several properties on a single node in one load/save. Values are type-coerced like set_node_property.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node within the scene' },
+              properties: { type: 'object', description: 'Map of property name -> value' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'properties'],
+          },
+        },
+        {
+          name: 'reorder_node',
+          description: 'Move a node to a different index among its siblings (controls draw order / child order).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              scenePath: { type: 'string', description: 'Path to the scene file' },
+              nodePath: { type: 'string', description: 'Path to the node to move' },
+              toIndex: { type: 'number', description: 'Target sibling index (0-based)' },
+            },
+            required: ['projectPath', 'scenePath', 'nodePath', 'toIndex'],
+          },
+        },
+        {
+          name: 'export_project',
+          description:
+            'Export the project using a configured export preset (completes the build pipeline). Runs Godot --export-release (or --export-debug). ' +
+            'The preset must already exist in export_presets.cfg. Returns the exit code and output tail.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+              presetName: { type: 'string', description: 'Name of the export preset (as defined in export_presets.cfg)' },
+              exportPath: { type: 'string', description: 'Output file path (relative to project, e.g. build/game.exe)' },
+              debugExport: { type: 'boolean', description: 'Use --export-debug instead of --export-release (default false)' },
+            },
+            required: ['projectPath', 'presetName', 'exportPath'],
+          },
+        },
       ],
     }));
 
@@ -1640,6 +1840,28 @@ class GodotServer {
           return await this.handleRunTests(request.params.arguments);
         case 'capture_scene_screenshot':
           return await this.handleCaptureSceneScreenshot(request.params.arguments);
+        // --- Performance ---
+        case 'batch':
+          return await this.handleBatch(request.params.arguments);
+        case 'build_scene':
+          return await this.handleBuildScene(request.params.arguments);
+        // --- Capability breadth ---
+        case 'find_nodes':
+          return await this.handleFindNodes(request.params.arguments);
+        case 'list_classes':
+          return await this.handleListClasses(request.params.arguments);
+        case 'path_to_uid':
+          return await this.handlePathToUid(request.params.arguments);
+        case 'find_broken_references':
+          return await this.handleFindBrokenReferences(request.params.arguments);
+        case 'create_animation':
+          return await this.handleCreateAnimation(request.params.arguments);
+        case 'set_node_properties':
+          return await this.handleSetNodeProperties(request.params.arguments);
+        case 'reorder_node':
+          return await this.handleReorderNode(request.params.arguments);
+        case 'export_project':
+          return await this.handleExportProject(request.params.arguments);
         default:
           throw new McpError(
             ErrorCode.MethodNotFound,
@@ -3417,6 +3639,164 @@ class GodotServer {
       }
     } catch (error: any) {
       return this.createErrorResponse(`capture_scene_screenshot failed: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  // ----- Performance: single-boot multi-op -----
+
+  private async handleBatch(args: any) {
+    args = this.normalizeParameters(args);
+    if (!Array.isArray(args.operations)) {
+      return this.createErrorResponse('operations must be an array of {operation, params} objects', [
+        'See the batch tool description for the list of batchable operations',
+      ]);
+    }
+    const err = this.checkProject(args.projectPath);
+    if (err) return err;
+    // Pre-convert each op's params to snake_case here: executeOperation does not
+    // recurse into array elements, so nested params would otherwise reach the
+    // GDScript with camelCase keys it doesn't understand.
+    const operations = args.operations.map((o: any) => ({
+      operation: o.operation || o.op,
+      params: this.convertCamelToSnakeCase(o.params || {}),
+    }));
+    const timeout = Math.max(OPERATION_TIMEOUT_MS, operations.length * 2000 + 15000);
+    try {
+      const { result, stderr, stdout } = await this.executeStructuredOperation(
+        'batch',
+        { operations, stopOnError: args.stopOnError !== false },
+        args.projectPath,
+        timeout
+      );
+      if (result === null) {
+        const detail = (stderr && stderr.trim()) || (stdout && stdout.trim()) || 'unknown error';
+        return this.createErrorResponse(`batch failed to run: ${detail}`, [
+          'Ensure every operation name is batchable (see the batch tool description)',
+        ]);
+      }
+      const okCount = Array.isArray(result.results) ? result.results.filter((r: any) => r.ok).length : 0;
+      const verdict = result.all_ok ? '✅ all ok' : '❌ some failed';
+      return this.structuredResponse(`batch: ${okCount}/${result.ran} operations ok — ${verdict}`, result);
+    } catch (error: any) {
+      return this.createErrorResponse(`batch failed: ${error?.message || 'Unknown error'}`, []);
+    }
+  }
+
+  private async handleBuildScene(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || !args.root) return this.missing('scenePath', 'root');
+    const opParams: OperationParams = { scenePath: args.scenePath, root: args.root };
+    if (args.signals) opParams.signals = args.signals;
+    return this.dispatchOp('build_scene', args.projectPath, opParams,
+      `Built scene '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  // ----- Capability breadth -----
+
+  private async handleFindNodes(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath) return this.missing('scenePath');
+    const p: OperationParams = { scenePath: args.scenePath };
+    if (args.type) p.type = args.type;
+    if (args.group) p.group = args.group;
+    if (args.namePattern) p.namePattern = args.namePattern;
+    return this.dispatchOp('find_nodes', args.projectPath, p,
+      `Matching nodes in '${args.scenePath}':`, [args.scenePath]);
+  }
+
+  private async handleListClasses(args: any) {
+    args = this.normalizeParameters(args);
+    const p: OperationParams = {};
+    if (args.filter) p.filter = args.filter;
+    if (args.inherits) p.inherits = args.inherits;
+    return this.dispatchOp('list_classes', args.projectPath, p, 'Classes:');
+  }
+
+  private async handlePathToUid(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.filePath) return this.missing('filePath');
+    return this.dispatchOp('path_to_uid', args.projectPath, { filePath: args.filePath },
+      `UID for '${args.filePath}':`, [args.filePath]);
+  }
+
+  private async handleFindBrokenReferences(args: any) {
+    args = this.normalizeParameters(args);
+    const p: OperationParams = {};
+    if (args.directory) p.directory = args.directory;
+    return this.dispatchOp('find_broken_references', args.projectPath, p,
+      'Broken reference scan:', args.directory ? [args.directory] : []);
+  }
+
+  private async handleCreateAnimation(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.playerNode === undefined || !args.name || !args.tracks) {
+      return this.missing('scenePath', 'playerNode', 'name', 'tracks');
+    }
+    const p: OperationParams = {
+      scenePath: args.scenePath,
+      playerNode: args.playerNode,
+      name: args.name,
+      tracks: args.tracks,
+    };
+    if (args.length !== undefined) p.length = args.length;
+    if (args.loop !== undefined) p.loop = args.loop;
+    if (args.library !== undefined) p.library = args.library;
+    return this.dispatchOp('create_animation', args.projectPath, p,
+      `Created animation '${args.name}':`, [args.scenePath]);
+  }
+
+  private async handleSetNodeProperties(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || !args.properties) {
+      return this.missing('scenePath', 'nodePath', 'properties');
+    }
+    return this.dispatchOp('set_node_properties', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, properties: args.properties },
+      `Set properties on '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleReorderNode(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.scenePath || args.nodePath === undefined || args.toIndex === undefined) {
+      return this.missing('scenePath', 'nodePath', 'toIndex');
+    }
+    return this.dispatchOp('reorder_node', args.projectPath,
+      { scenePath: args.scenePath, nodePath: args.nodePath, toIndex: args.toIndex },
+      `Reordered '${args.nodePath}':`, [args.scenePath]);
+  }
+
+  private async handleExportProject(args: any) {
+    args = this.normalizeParameters(args);
+    if (!args.presetName || !args.exportPath) return this.missing('presetName', 'exportPath');
+    const err = this.checkProject(args.projectPath, args.exportPath);
+    if (err) return err;
+    try {
+      if (!this.godotPath) {
+        await this.detectGodotPath();
+        if (!this.godotPath) throw new Error('Could not find a valid Godot executable path');
+      }
+      const flag = args.debugExport ? '--export-debug' : '--export-release';
+      // Godot creates the output directory for the artifact, but not always; be lenient.
+      const cmdArgs = ['--headless', '--path', args.projectPath, flag, args.presetName, args.exportPath];
+      const { stdout, stderr, code } = await this.executeRaw(cmdArgs, 300000);
+      const combined = `${stdout}\n${stderr}`;
+      const ok = code === 0;
+      return this.structuredResponse(
+        `Export '${args.presetName}' ${ok ? 'succeeded' : 'FAILED'} (exit ${code}) -> ${args.exportPath}`,
+        {
+          preset: args.presetName,
+          exportPath: args.exportPath,
+          mode: args.debugExport ? 'debug' : 'release',
+          exitCode: code,
+          ok,
+          outputTail: combined.split('\n').slice(-40).join('\n'),
+        }
+      );
+    } catch (error: any) {
+      return this.createErrorResponse(`export_project failed: ${error?.message || 'Unknown error'}`, [
+        'Ensure the export preset exists in export_presets.cfg',
+        'Install the matching export templates for this Godot version',
+      ]);
     }
   }
 
