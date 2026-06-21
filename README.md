@@ -54,7 +54,7 @@ A Model Context Protocol (MCP) server for interacting with the Godot game engine
 
 Godot MCP enables AI agents to launch the Godot editor, run projects, capture debug output, and control project execution. This direct feedback loop helps agents understand what works and what doesn't in real Godot projects, leading to better code generation and debugging assistance.
 
-> This project (`godot-mcp-extended`) builds on the original [godot-mcp](https://github.com/Coding-Solo/godot-mcp) by Solomon Elias (MIT), adding a full inspect → edit → validate → e2e toolset (60 tools total).
+> This project (`godot-mcp-extended`) builds on the original [godot-mcp](https://github.com/Coding-Solo/godot-mcp) by Solomon Elias (MIT), adding a full inspect → edit → validate → e2e loop plus broad scene/resource authoring across animation, audio, shaders, UI/theme, particles, physics, navigation and 3D (**157 tools total**).
 
 ## Features
 
@@ -115,6 +115,46 @@ The server exposes a full **inspect → mutate → validate** loop so an agent c
 - **Animation & build**:
   - `create_animation` — author a value-track `Animation` on an `AnimationPlayer` (keyframes from JSON)
   - `export_project` — export via a configured preset (`--export-release`/`--export-debug`) to complete the build pipeline
+
+### Authoring & analysis toolset
+
+Beyond the core loop above, the server covers most day-to-day scene/resource authoring and
+project analysis — every tool runs headless and returns structured JSON.
+
+- **Project & filesystem analysis (READ-only)**:
+  - `get_filesystem_tree`, `search_files`, `search_in_files`, `get_project_statistics`
+  - `get_scene_file_content`, `read_resource`, `get_project_settings`, `get_input_actions`
+  - `find_script_references`, `find_node_references`, `find_unused_resources`, `detect_circular_dependencies`
+  - `analyze_scene_complexity`, `analyze_signal_flow`, `find_signal_connections`
+  - `get_scene_exports`, `get_node_groups`, `find_nodes_by_type`, `find_nodes_in_group`
+  - `list_export_presets`, `get_export_info`, `get_android_preset_info`
+- **TileMap** (`TileMapLayer` + legacy `TileMap`):
+  - `tilemap_set_cell`, `tilemap_fill_rect`, `tilemap_get_cell`, `tilemap_clear`, `tilemap_get_info`, `tilemap_get_used_cells`
+- **Animation & AnimationTree**:
+  - `list_animations`, `add_animation_track`, `set_animation_keyframe`, `get_animation_info`, `remove_animation`
+  - `create_animation_tree`, `get_animation_tree_structure`, `add_state_machine_state`/`remove_state_machine_state`, `add_state_machine_transition`/`remove_state_machine_transition`, `set_blend_tree_node`, `set_tree_parameter`
+- **Audio** (project bus layout + scene players):
+  - `add_audio_bus`, `set_audio_bus`, `add_audio_bus_effect`, `get_audio_bus_layout`, `add_audio_player`, `get_audio_info`
+- **Shaders, Themes & UI**:
+  - `create_shader`, `read_shader`, `edit_shader`, `assign_shader_material`, `set_shader_param`, `get_shader_params`
+  - `create_theme`, `set_theme_color`, `set_theme_constant`, `set_theme_font_size`, `set_theme_stylebox`, `get_theme_info`, `setup_control`
+- **Particles**:
+  - `create_particles`, `set_particle_material`, `set_particle_color_gradient`, `apply_particle_preset`, `get_particle_info`
+- **Physics**:
+  - `setup_physics_body`, `setup_collision`, `add_raycast`, `set_physics_layers`, `get_physics_layers`, `get_collision_info`
+- **Navigation & 3D**:
+  - `setup_navigation_region`, `bake_navigation_mesh`, `setup_navigation_agent`, `set_navigation_layers`, `get_navigation_info`
+  - `add_mesh_instance`, `set_material_3d`, `setup_lighting`, `setup_environment`, `setup_camera_3d`, `add_gridmap`
+- **More node / script / batch authoring**:
+  - `move_node`, `update_property`, `add_resource`, `set_anchor_preset`, `set_node_groups`
+  - `batch_add_nodes`, `batch_set_property`, `cross_scene_set_property`
+  - `edit_script`, `validate_script`, `set_input_action`, `add_scene_instance`, `delete_scene`
+  - `uid_to_project_path`, `project_path_to_uid`
+
+> **Deferred capabilities.** Tools that need a *running game* or a *live editor* (input
+> simulation, running-game inspection, editor screenshots, runtime test scenarios, device
+> deploy) can't run in this headless model. They're catalogued — with per-tool contracts and a
+> proposed opt-in bridge design — in [`docs/live-editor-bridge.md`](docs/live-editor-bridge.md).
 
 ### Automated e2e / UAT
 
